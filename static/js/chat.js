@@ -94,28 +94,40 @@ class Chat {
                 buffer += decoder.decode(value, { stream: true });
                 
                 // Process SSE events
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || ''; // Keep incomplete line in buffer
+                // SSE format: events are separated by double newlines
+                // Each event can have multiple "data:" lines (for content with newlines)
+                const events = buffer.split('\n\n');
+                buffer = events.pop() || ''; // Keep incomplete event in buffer
 
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        // Extract data and trim any trailing whitespace/CR from SSE parsing
-                        const data = line.slice(6).replace(/\r$/, '');
-                        
-                        // Handle event types
-                        if (data === '') continue;
-                        
-                        fullContent += data;
-                        onChunk(data, fullContent);
-                    } else if (line.startsWith('event: done')) {
+                for (const event of events) {
+                    if (!event.trim()) continue;
+                    
+                    const lines = event.split('\n');
+                    let eventType = 'message';
+                    let dataLines = [];
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('event: ')) {
+                            eventType = line.slice(7).trim();
+                        } else if (line.startsWith('data: ')) {
+                            dataLines.push(line.slice(6));
+                        } else if (line.startsWith('data:')) {
+                            // Handle "data:" with no space (empty line)
+                            dataLines.push(line.slice(5));
+                        }
+                    }
+                    
+                    // Join data lines with newlines (SSE spec)
+                    const data = dataLines.join('\n').replace(/\r$/gm, '');
+                    
+                    if (eventType === 'done') {
                         // Stream complete
                         break;
-                    } else if (line.startsWith('event: error')) {
-                        // Next data line will contain error
-                        const errorLine = lines.find(l => l.startsWith('data: '));
-                        if (errorLine) {
-                            throw new Error(errorLine.slice(6));
-                        }
+                    } else if (eventType === 'error') {
+                        throw new Error(data || 'Unknown error');
+                    } else if (eventType === 'message' && data) {
+                        fullContent += data;
+                        onChunk(data, fullContent);
                     }
                 }
             }
