@@ -880,17 +880,29 @@ class Canvas {
         // Step 1: Normalize line endings
         text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
         
-        // Step 2: Collapse 3+ newlines to exactly 2 (paragraph break)
+        // Step 2: Extract and preserve fenced code blocks before normalization
+        const codeBlocks = [];
+        text = text.replace(/```[\s\S]*?```/g, (match) => {
+            codeBlocks.push(match);
+            return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+        });
+        
+        // Step 3: Collapse 3+ newlines to exactly 2 (paragraph break)
         text = text.replace(/\n{3,}/g, '\n\n');
         
-        // Step 3: For single newlines NOT followed by markdown syntax,
+        // Step 4: For single newlines NOT followed by markdown syntax,
         // replace with space (fixes mid-sentence breaks from SSE tokens)
         // Keep newlines before: # (headings), - * + (lists), 1. (numbered lists), 
-        // > (blockquotes), ``` (code blocks), | (tables), empty lines
-        text = text.replace(/\n(?=[^#\-*+>\d`|\n])/g, ' ');
+        // > (blockquotes), | (tables), empty lines
+        text = text.replace(/\n(?=[^#\-*+>\d|\n])/g, ' ');
         
-        // Step 4: Clean up multiple spaces (but preserve indentation at line start)
+        // Step 5: Clean up multiple spaces (but preserve indentation at line start)
         text = text.replace(/([^\n]) {2,}/g, '$1 ');
+        
+        // Step 6: Restore code blocks
+        text = text.replace(/__CODE_BLOCK_(\d+)__/g, (match, index) => {
+            return codeBlocks[parseInt(index)];
+        });
         
         // Check if marked is available
         if (typeof marked !== 'undefined') {
