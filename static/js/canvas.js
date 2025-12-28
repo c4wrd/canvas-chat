@@ -463,13 +463,14 @@ class Canvas {
         this.nodesLayer.appendChild(wrapper);
         this.nodeElements.set(node.id, wrapper);
         
-        // Auto-size height after render if not explicitly set
-        if (!node.height) {
-            requestAnimationFrame(() => {
-                const height = div.offsetHeight;
-                wrapper.setAttribute('height', Math.max(height + 10, minHeight));
-            });
-        }
+        // Auto-size height after render based on actual content
+        // Use requestAnimationFrame to ensure DOM has rendered
+        requestAnimationFrame(() => {
+            const contentHeight = div.offsetHeight;
+            // Use the larger of: stored height, content height, or minimum height
+            const finalHeight = Math.max(contentHeight + 10, node.height || 100, 100);
+            wrapper.setAttribute('height', finalHeight);
+        });
         
         // Setup node event listeners
         this.setupNodeEvents(wrapper, node);
@@ -553,8 +554,15 @@ class Canvas {
                     
                     // If only resizing width (east), auto-adjust height based on content
                     if (resizeType === 'e') {
-                        // Let the content reflow, then measure
-                        const contentHeight = div.offsetHeight;
+                        // Temporarily remove min-height to get natural content height
+                        const oldMinHeight = div.style.minHeight;
+                        div.style.minHeight = 'auto';
+                        
+                        // Force reflow and measure
+                        const contentHeight = div.scrollHeight;
+                        
+                        // Restore and set new height
+                        div.style.minHeight = oldMinHeight;
                         wrapper.setAttribute('height', Math.max(100, contentHeight + 10));
                     } else {
                         wrapper.setAttribute('height', newHeight);

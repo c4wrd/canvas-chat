@@ -177,6 +177,25 @@ class App {
             }
         });
         
+        // New Canvas button
+        document.getElementById('new-canvas-btn').addEventListener('click', () => {
+            if (this.graph.isEmpty() || confirm('Start a new canvas? Current session will be saved.')) {
+                this.createNewSession();
+            }
+        });
+        
+        // Sessions modal
+        document.getElementById('sessions-btn').addEventListener('click', () => {
+            this.showSessionsModal();
+        });
+        document.getElementById('session-close').addEventListener('click', () => {
+            this.hideSessionsModal();
+        });
+        document.getElementById('new-session-btn').addEventListener('click', () => {
+            this.hideSessionsModal();
+            this.createNewSession();
+        });
+        
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             // Escape to clear selection
@@ -549,6 +568,65 @@ class App {
         
         storage.saveApiKeys(keys);
         this.hideSettingsModal();
+    }
+
+    // --- Sessions Modal ---
+
+    async showSessionsModal() {
+        const modal = document.getElementById('session-modal');
+        modal.style.display = 'flex';
+        
+        // Load sessions list
+        const sessions = await storage.listSessions();
+        const listEl = document.getElementById('session-list');
+        
+        if (sessions.length === 0) {
+            listEl.innerHTML = '<p style="color: var(--text-muted); text-align: center;">No saved sessions</p>';
+            return;
+        }
+        
+        listEl.innerHTML = sessions.map(session => `
+            <div class="session-item" data-session-id="${session.id}">
+                <div>
+                    <div class="session-item-name">${session.name || 'Untitled Session'}</div>
+                    <div class="session-item-date">${new Date(session.updated_at).toLocaleDateString()}</div>
+                </div>
+                <button class="session-item-delete" data-delete-id="${session.id}" title="Delete">🗑️</button>
+            </div>
+        `).join('');
+        
+        // Add click handlers for session items
+        listEl.querySelectorAll('.session-item').forEach(item => {
+            item.addEventListener('click', async (e) => {
+                if (e.target.closest('.session-item-delete')) return;
+                const sessionId = item.dataset.sessionId;
+                const session = await storage.getSession(sessionId);
+                if (session) {
+                    this.loadSessionData(session);
+                    this.hideSessionsModal();
+                }
+            });
+        });
+        
+        // Add delete handlers
+        listEl.querySelectorAll('.session-item-delete').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const sessionId = btn.dataset.deleteId;
+                if (confirm('Delete this session? This cannot be undone.')) {
+                    await storage.deleteSession(sessionId);
+                    // If deleting current session, create new one
+                    if (this.session.id === sessionId) {
+                        this.createNewSession();
+                    }
+                    this.showSessionsModal(); // Refresh list
+                }
+            });
+        });
+    }
+
+    hideSessionsModal() {
+        document.getElementById('session-modal').style.display = 'none';
     }
 }
 
