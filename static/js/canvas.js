@@ -160,8 +160,8 @@ class Canvas {
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
         
-        // Calculate zoom
-        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        // Calculate zoom (slower: ~5% per scroll step)
+        const delta = e.deltaY > 0 ? 0.95 : 1.05;
         const newScale = Math.max(this.minScale, Math.min(this.maxScale, this.scale * delta));
         
         if (newScale === this.scale) return;
@@ -382,7 +382,15 @@ class Canvas {
                     }
                     
                     wrapper.setAttribute('width', newWidth);
-                    wrapper.setAttribute('height', newHeight);
+                    
+                    // If only resizing width (east), auto-adjust height based on content
+                    if (resizeType === 'e') {
+                        // Let the content reflow, then measure
+                        const contentHeight = div.offsetHeight;
+                        wrapper.setAttribute('height', Math.max(100, contentHeight + 10));
+                    } else {
+                        wrapper.setAttribute('height', newHeight);
+                    }
                     
                     // Update edges
                     this.updateEdgesForNode(node.id, node.position);
@@ -681,9 +689,22 @@ class Canvas {
         if (!text) return '';
         
         // Normalize spurious newlines that may have been introduced by SSE streaming
-        // Replace single newlines between non-newline characters with spaces
-        // (preserves intentional double-newlines for paragraph breaks)
-        text = text.replace(/([^\n])\n([^\n])/g, '$1 $2');
+        // This handles cases where each token was stored with a newline after it
+        
+        // Step 1: Normalize line endings
+        text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        
+        // Step 2: Collapse 3+ newlines to exactly 2 (paragraph break)
+        text = text.replace(/\n{3,}/g, '\n\n');
+        
+        // Step 3: For single newlines NOT followed by markdown syntax,
+        // replace with space (fixes mid-sentence breaks from SSE tokens)
+        // Keep newlines before: # (headings), - * + (lists), 1. (numbered lists), 
+        // > (blockquotes), ``` (code blocks), | (tables), empty lines
+        text = text.replace(/\n(?=[^#\-*+>\d`|\n])/g, ' ');
+        
+        // Step 4: Clean up multiple spaces (but preserve indentation at line start)
+        text = text.replace(/([^\n]) {2,}/g, '$1 ');
         
         // Check if marked is available
         if (typeof marked !== 'undefined') {
