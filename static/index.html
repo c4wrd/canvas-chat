@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas Chat</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- Marked.js for markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <!-- Top Toolbar -->
+    <div id="toolbar">
+        <div class="toolbar-left">
+            <h1 class="logo">Canvas Chat</h1>
+            <div class="session-name" id="session-name">Untitled Session</div>
+        </div>
+        <div class="toolbar-center">
+            <div class="context-budget" id="context-budget">
+                <span class="budget-label">Context:</span>
+                <div class="budget-bar">
+                    <div class="budget-fill" id="budget-fill" style="width: 0%"></div>
+                </div>
+                <span class="budget-text" id="budget-text">0 / 128k</span>
+            </div>
+        </div>
+        <div class="toolbar-right">
+            <select id="model-picker" class="model-picker">
+                <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+            </select>
+            <button id="settings-btn" class="icon-btn" title="Settings">⚙️</button>
+            <button id="export-btn" class="icon-btn" title="Export">💾</button>
+            <button id="import-btn" class="icon-btn" title="Import">📂</button>
+        </div>
+    </div>
+
+    <!-- Main Canvas Area -->
+    <div id="canvas-container">
+        <svg id="canvas" width="100%" height="100%">
+            <!-- Edges layer (below nodes) -->
+            <g id="edges-layer"></g>
+            <!-- Nodes layer -->
+            <g id="nodes-layer"></g>
+        </svg>
+        
+        <!-- Node template (cloned when creating nodes) -->
+        <template id="node-template">
+            <foreignObject class="node-wrapper" width="320" height="auto">
+                <div class="node" xmlns="http://www.w3.org/1999/xhtml">
+                    <div class="node-header">
+                        <span class="node-type"></span>
+                        <span class="node-model"></span>
+                    </div>
+                    <div class="node-content"></div>
+                    <div class="node-actions">
+                        <button class="node-action reply-btn" title="Reply">↩️</button>
+                        <button class="node-action branch-btn" title="Branch from selection">🌿</button>
+                        <button class="node-action summarize-btn" title="Summarize">📝</button>
+                    </div>
+                </div>
+            </foreignObject>
+        </template>
+    </div>
+
+    <!-- Chat Input (floating at bottom) -->
+    <div id="chat-input-container">
+        <div class="selected-nodes-indicator" id="selected-nodes-indicator" style="display: none;">
+            Responding to <span id="selected-count">0</span> node(s)
+            <button id="clear-selection-btn">✕</button>
+        </div>
+        <div class="chat-input-wrapper">
+            <textarea 
+                id="chat-input" 
+                placeholder="Type a message... (Enter to send, Shift+Enter for newline)"
+                rows="1"
+            ></textarea>
+            <button id="send-btn" class="send-btn" title="Send">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 2L11 13"></path>
+                    <path d="M22 2L15 22L11 13L2 9L22 2Z"></path>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <button class="modal-close" id="settings-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <h3>API Keys</h3>
+                <p class="settings-note">Keys are stored locally in your browser and sent directly to providers.</p>
+                
+                <div class="api-key-group">
+                    <label for="openai-key">OpenAI API Key</label>
+                    <input type="password" id="openai-key" placeholder="sk-...">
+                </div>
+                
+                <div class="api-key-group">
+                    <label for="anthropic-key">Anthropic API Key</label>
+                    <input type="password" id="anthropic-key" placeholder="sk-ant-...">
+                </div>
+                
+                <div class="api-key-group">
+                    <label for="google-key">Google AI API Key</label>
+                    <input type="password" id="google-key" placeholder="AI...">
+                </div>
+                
+                <div class="api-key-group">
+                    <label for="groq-key">Groq API Key</label>
+                    <input type="password" id="groq-key" placeholder="gsk_...">
+                </div>
+                
+                <div class="api-key-group">
+                    <label for="github-key">GitHub Token (for GitHub Models)</label>
+                    <input type="password" id="github-key" placeholder="ghp_... or github_pat_...">
+                    <small class="key-hint">PAT with <code>models:read</code> scope. <a href="https://github.com/settings/tokens" target="_blank">Create token</a></small>
+                </div>
+                
+                <button id="save-settings-btn" class="primary-btn">Save Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Session Picker Modal -->
+    <div id="session-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Sessions</h2>
+                <button class="modal-close" id="session-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <button id="new-session-btn" class="primary-btn">+ New Session</button>
+                <div id="session-list" class="session-list">
+                    <!-- Sessions will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden file input for import -->
+    <input type="file" id="import-file-input" accept=".canvaschat" style="display: none;">
+
+    <!-- Scripts -->
+    <script src="/static/js/storage.js"></script>
+    <script src="/static/js/graph.js"></script>
+    <script src="/static/js/canvas.js"></script>
+    <script src="/static/js/chat.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

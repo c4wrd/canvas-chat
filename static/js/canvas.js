@@ -1,0 +1,741 @@
+/**
+ * Canvas module - SVG-based pan/zoom canvas with node rendering
+ */
+
+class Canvas {
+    constructor(containerId, svgId) {
+        this.container = document.getElementById(containerId);
+        this.svg = document.getElementById(svgId);
+        this.nodesLayer = document.getElementById('nodes-layer');
+        this.edgesLayer = document.getElementById('edges-layer');
+        
+        // Viewport state
+        this.viewBox = { x: 0, y: 0, width: 1000, height: 800 };
+        this.scale = 1;
+        this.minScale = 0.1;
+        this.maxScale = 3;
+        
+        // Interaction state
+        this.isPanning = false;
+        this.panStart = { x: 0, y: 0 };
+        this.isDraggingNode = false;
+        this.draggedNode = null;
+        this.dragOffset = { x: 0, y: 0 };
+        
+        // Node elements map
+        this.nodeElements = new Map();
+        this.edgeElements = new Map();
+        
+        // Selection state
+        this.selectedNodes = new Set();
+        this.hoveredNode = null;
+        
+        // Callbacks
+        this.onNodeSelect = null;
+        this.onNodeDeselect = null;
+        this.onNodeMove = null;
+        this.onNodeResize = null;
+        this.onNodeReply = null;
+        this.onNodeBranch = null;
+        this.onNodeSummarize = null;
+        
+        this.init();
+    }
+
+    init() {
+        this.updateViewBox();
+        this.setupEventListeners();
+        this.handleResize();
+    }
+
+    setupEventListeners() {
+        // Pan
+        this.container.addEventListener('mousedown', this.handleMouseDown.bind(this));
+        this.container.addEventListener('mousemove', this.handleMouseMove.bind(this));
+        this.container.addEventListener('mouseup', this.handleMouseUp.bind(this));
+        this.container.addEventListener('mouseleave', this.handleMouseUp.bind(this));
+        
+        // Zoom
+        this.container.addEventListener('wheel', this.handleWheel.bind(this), { passive: false });
+        
+        // Resize
+        window.addEventListener('resize', this.handleResize.bind(this));
+        
+        // Double-click to fit
+        this.container.addEventListener('dblclick', this.handleDoubleClick.bind(this));
+    }
+
+    handleResize() {
+        const rect = this.container.getBoundingClientRect();
+        this.viewBox.width = rect.width / this.scale;
+        this.viewBox.height = rect.height / this.scale;
+        this.updateViewBox();
+    }
+
+    updateViewBox() {
+        this.svg.setAttribute('viewBox', 
+            `${this.viewBox.x} ${this.viewBox.y} ${this.viewBox.width} ${this.viewBox.height}`
+        );
+    }
+
+    handleMouseDown(e) {
+        // Ignore if clicking on a node
+        if (e.target.closest('.node')) {
+            return;
+        }
+        
+        // Check for click on empty space (deselect)
+        if (e.target === this.svg || e.target.closest('#edges-layer')) {
+            if (!e.ctrlKey && !e.metaKey) {
+                this.clearSelection();
+            }
+        }
+        
+        // Start panning
+        this.isPanning = true;
+        this.panStart = { x: e.clientX, y: e.clientY };
+        this.container.style.cursor = 'grabbing';
+    }
+
+    handleMouseMove(e) {
+        if (this.isPanning) {
+            const dx = (e.clientX - this.panStart.x) / this.scale;
+            const dy = (e.clientY - this.panStart.y) / this.scale;
+            
+            this.viewBox.x -= dx;
+            this.viewBox.y -= dy;
+            
+            this.panStart = { x: e.clientX, y: e.clientY };
+            this.updateViewBox();
+        } else if (this.isDraggingNode && this.draggedNode) {
+            const point = this.clientToSvg(e.clientX, e.clientY);
+            const newX = point.x - this.dragOffset.x;
+            const newY = point.y - this.dragOffset.y;
+            
+            // Update visual position
+            const wrapper = this.nodeElements.get(this.draggedNode.id);
+            if (wrapper) {
+                wrapper.setAttribute('x', newX);
+                wrapper.setAttribute('y', newY);
+            }
+            
+            // Update edges
+            this.updateEdgesForNode(this.draggedNode.id, { x: newX, y: newY });
+        }
+    }
+
+    handleMouseUp(e) {
+        if (this.isPanning) {
+            this.isPanning = false;
+            this.container.style.cursor = 'grab';
+        }
+        
+        if (this.isDraggingNode && this.draggedNode) {
+            const wrapper = this.nodeElements.get(this.draggedNode.id);
+            if (wrapper) {
+                const newPos = {
+                    x: parseFloat(wrapper.getAttribute('x')),
+                    y: parseFloat(wrapper.getAttribute('y'))
+                };
+                
+                // Remove dragging class
+                const nodeEl = wrapper.querySelector('.node');
+                if (nodeEl) nodeEl.classList.remove('dragging');
+                
+                // Callback to persist position
+                if (this.onNodeMove) {
+                    this.onNodeMove(this.draggedNode.id, newPos);
+                }
+            }
+            
+            this.isDraggingNode = false;
+            this.draggedNode = null;
+        }
+    }
+
+    handleWheel(e) {
+        e.preventDefault();
+        
+        const rect = this.container.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        
+        // Calculate zoom
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        const newScale = Math.max(this.minScale, Math.min(this.maxScale, this.scale * delta));
+        
+        if (newScale === this.scale) return;
+        
+        // Zoom towards mouse position
+        const pointBefore = this.clientToSvg(e.clientX, e.clientY);
+        
+        this.scale = newScale;
+        this.viewBox.width = rect.width / this.scale;
+        this.viewBox.height = rect.height / this.scale;
+        
+        const pointAfter = this.clientToSvg(e.clientX, e.clientY);
+        
+        this.viewBox.x += pointBefore.x - pointAfter.x;
+        this.viewBox.y += pointBefore.y - pointAfter.y;
+        
+        this.updateViewBox();
+    }
+
+    handleDoubleClick(e) {
+        // Double-click on empty space to fit content
+        if (e.target === this.svg || e.target.closest('#edges-layer')) {
+            this.fitToContent();
+        }
+    }
+
+    /**
+     * Convert client coordinates to SVG coordinates
+     */
+    clientToSvg(clientX, clientY) {
+        const rect = this.container.getBoundingClientRect();
+        return {
+            x: this.viewBox.x + (clientX - rect.left) / this.scale,
+            y: this.viewBox.y + (clientY - rect.top) / this.scale
+        };
+    }
+
+    /**
+     * Fit the viewport to show all nodes
+     */
+    fitToContent(padding = 50) {
+        const nodes = Array.from(this.nodeElements.values());
+        if (nodes.length === 0) return;
+        
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+        
+        for (const wrapper of nodes) {
+            const x = parseFloat(wrapper.getAttribute('x'));
+            const y = parseFloat(wrapper.getAttribute('y'));
+            const width = parseFloat(wrapper.getAttribute('width')) || 320;
+            const height = parseFloat(wrapper.getAttribute('height')) || 200;
+            
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x + width);
+            maxY = Math.max(maxY, y + height);
+        }
+        
+        const contentWidth = maxX - minX + padding * 2;
+        const contentHeight = maxY - minY + padding * 2;
+        
+        const rect = this.container.getBoundingClientRect();
+        const scaleX = rect.width / contentWidth;
+        const scaleY = rect.height / contentHeight;
+        this.scale = Math.min(scaleX, scaleY, 1);
+        
+        this.viewBox.x = minX - padding;
+        this.viewBox.y = minY - padding;
+        this.viewBox.width = rect.width / this.scale;
+        this.viewBox.height = rect.height / this.scale;
+        
+        this.updateViewBox();
+    }
+
+    /**
+     * Center on a specific position
+     */
+    centerOn(x, y) {
+        const rect = this.container.getBoundingClientRect();
+        this.viewBox.x = x - (rect.width / this.scale) / 2;
+        this.viewBox.y = y - (rect.height / this.scale) / 2;
+        this.updateViewBox();
+    }
+
+    // --- Node Rendering ---
+
+    /**
+     * Render a node to the canvas
+     */
+    renderNode(node) {
+        // Remove existing if present
+        this.removeNode(node.id);
+        
+        // Use stored dimensions or defaults
+        const width = node.width || 320;
+        const minHeight = node.height || 100;
+        
+        // Create foreignObject wrapper
+        const wrapper = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+        wrapper.setAttribute('class', 'node-wrapper');
+        wrapper.setAttribute('x', node.position.x);
+        wrapper.setAttribute('y', node.position.y);
+        wrapper.setAttribute('width', width);
+        wrapper.setAttribute('height', minHeight);
+        wrapper.setAttribute('data-node-id', node.id);
+        
+        // Create node HTML
+        const div = document.createElement('div');
+        div.className = `node ${node.type}`;
+        div.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+        div.style.width = '100%';
+        div.style.minHeight = '100%';
+        div.innerHTML = `
+            <div class="node-header">
+                <span class="node-type">${this.getNodeTypeLabel(node.type)}</span>
+                <span class="node-model">${node.model || ''}</span>
+            </div>
+            <div class="node-content">${this.renderMarkdown(node.content)}</div>
+            <div class="node-actions">
+                <button class="node-action reply-btn" title="Reply">↩️ Reply</button>
+                ${node.type !== NodeType.NOTE ? '<button class="node-action branch-btn" title="Branch">🌿 Branch</button>' : ''}
+                ${node.type === NodeType.AI ? '<button class="node-action summarize-btn" title="Summarize">📝 Summarize</button>' : ''}
+            </div>
+            <div class="resize-handle resize-e" data-resize="e"></div>
+            <div class="resize-handle resize-s" data-resize="s"></div>
+            <div class="resize-handle resize-se" data-resize="se"></div>
+        `;
+        
+        wrapper.appendChild(div);
+        this.nodesLayer.appendChild(wrapper);
+        this.nodeElements.set(node.id, wrapper);
+        
+        // Auto-size height after render if not explicitly set
+        if (!node.height) {
+            requestAnimationFrame(() => {
+                const height = div.offsetHeight;
+                wrapper.setAttribute('height', Math.max(height + 10, minHeight));
+            });
+        }
+        
+        // Setup node event listeners
+        this.setupNodeEvents(wrapper, node);
+        
+        return wrapper;
+    }
+
+    /**
+     * Setup event listeners for a node
+     */
+    setupNodeEvents(wrapper, node) {
+        const div = wrapper.querySelector('.node');
+        
+        // Click to select
+        div.addEventListener('click', (e) => {
+            if (e.target.closest('.node-action')) return;
+            if (e.target.closest('.resize-handle')) return;
+            
+            if (e.ctrlKey || e.metaKey) {
+                // Multi-select toggle
+                if (this.selectedNodes.has(node.id)) {
+                    this.deselectNode(node.id);
+                } else {
+                    this.selectNode(node.id, true);
+                }
+            } else {
+                // Single select
+                this.clearSelection();
+                this.selectNode(node.id, false);
+            }
+        });
+        
+        // Drag to move
+        div.addEventListener('mousedown', (e) => {
+            if (e.target.closest('.node-action')) return;
+            if (e.target.closest('.resize-handle')) return;
+            if (e.target.closest('.node-content') && window.getSelection().toString()) return;
+            
+            e.stopPropagation();
+            
+            this.isDraggingNode = true;
+            this.draggedNode = node;
+            
+            const point = this.clientToSvg(e.clientX, e.clientY);
+            this.dragOffset = {
+                x: point.x - node.position.x,
+                y: point.y - node.position.y
+            };
+            
+            div.classList.add('dragging');
+        });
+        
+        // Resize handles
+        const resizeHandles = div.querySelectorAll('.resize-handle');
+        resizeHandles.forEach(handle => {
+            handle.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                
+                const resizeType = handle.dataset.resize;
+                const startX = e.clientX;
+                const startY = e.clientY;
+                const startWidth = parseFloat(wrapper.getAttribute('width'));
+                const startHeight = parseFloat(wrapper.getAttribute('height'));
+                
+                const onMouseMove = (moveEvent) => {
+                    const dx = (moveEvent.clientX - startX) / this.scale;
+                    const dy = (moveEvent.clientY - startY) / this.scale;
+                    
+                    let newWidth = startWidth;
+                    let newHeight = startHeight;
+                    
+                    if (resizeType.includes('e')) {
+                        newWidth = Math.max(200, startWidth + dx);
+                    }
+                    if (resizeType.includes('s')) {
+                        newHeight = Math.max(100, startHeight + dy);
+                    }
+                    
+                    wrapper.setAttribute('width', newWidth);
+                    wrapper.setAttribute('height', newHeight);
+                    
+                    // Update edges
+                    this.updateEdgesForNode(node.id, node.position);
+                };
+                
+                const onMouseUp = () => {
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                    
+                    // Save new dimensions
+                    const finalWidth = parseFloat(wrapper.getAttribute('width'));
+                    const finalHeight = parseFloat(wrapper.getAttribute('height'));
+                    
+                    if (this.onNodeResize) {
+                        this.onNodeResize(node.id, finalWidth, finalHeight);
+                    }
+                };
+                
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            });
+        });
+        
+        // Action buttons
+        const replyBtn = div.querySelector('.reply-btn');
+        const branchBtn = div.querySelector('.branch-btn');
+        const summarizeBtn = div.querySelector('.summarize-btn');
+        
+        if (replyBtn) {
+            replyBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this.onNodeReply) this.onNodeReply(node.id);
+            });
+        }
+        
+        if (branchBtn) {
+            branchBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const selection = window.getSelection();
+                const selectedText = selection.toString().trim();
+                if (this.onNodeBranch) {
+                    this.onNodeBranch(node.id, selectedText || null);
+                }
+            });
+        }
+        
+        if (summarizeBtn) {
+            summarizeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this.onNodeSummarize) this.onNodeSummarize(node.id);
+            });
+        }
+    }
+
+    /**
+     * Update node content (for streaming)
+     */
+    updateNodeContent(nodeId, content, isStreaming = false) {
+        const wrapper = this.nodeElements.get(nodeId);
+        if (!wrapper) return;
+        
+        const contentEl = wrapper.querySelector('.node-content');
+        if (contentEl) {
+            // During streaming, use plain text for performance
+            // After streaming completes, render markdown
+            if (isStreaming) {
+                contentEl.textContent = content;
+                contentEl.classList.add('streaming');
+            } else {
+                contentEl.innerHTML = this.renderMarkdown(content);
+                contentEl.classList.remove('streaming');
+            }
+        }
+        
+        // Update height
+        const div = wrapper.querySelector('.node');
+        if (div) {
+            wrapper.setAttribute('height', div.offsetHeight + 10);
+        }
+    }
+
+    /**
+     * Remove a node from the canvas
+     */
+    removeNode(nodeId) {
+        const wrapper = this.nodeElements.get(nodeId);
+        if (wrapper) {
+            wrapper.remove();
+            this.nodeElements.delete(nodeId);
+        }
+        this.selectedNodes.delete(nodeId);
+    }
+
+    /**
+     * Select a node
+     */
+    selectNode(nodeId, isMulti = false) {
+        if (!isMulti) {
+            this.clearSelection();
+        }
+        
+        this.selectedNodes.add(nodeId);
+        const wrapper = this.nodeElements.get(nodeId);
+        if (wrapper) {
+            wrapper.querySelector('.node')?.classList.add('selected');
+        }
+        
+        if (this.onNodeSelect) {
+            this.onNodeSelect(Array.from(this.selectedNodes));
+        }
+    }
+
+    /**
+     * Deselect a node
+     */
+    deselectNode(nodeId) {
+        this.selectedNodes.delete(nodeId);
+        const wrapper = this.nodeElements.get(nodeId);
+        if (wrapper) {
+            wrapper.querySelector('.node')?.classList.remove('selected');
+        }
+        
+        if (this.onNodeDeselect) {
+            this.onNodeDeselect(Array.from(this.selectedNodes));
+        }
+    }
+
+    /**
+     * Clear all selections
+     */
+    clearSelection() {
+        for (const nodeId of this.selectedNodes) {
+            const wrapper = this.nodeElements.get(nodeId);
+            if (wrapper) {
+                wrapper.querySelector('.node')?.classList.remove('selected');
+            }
+        }
+        this.selectedNodes.clear();
+        
+        if (this.onNodeDeselect) {
+            this.onNodeDeselect([]);
+        }
+    }
+
+    /**
+     * Get selected node IDs
+     */
+    getSelectedNodeIds() {
+        return Array.from(this.selectedNodes);
+    }
+
+    /**
+     * Highlight context ancestors
+     */
+    highlightContext(ancestorIds) {
+        // Clear previous highlights
+        for (const wrapper of this.nodeElements.values()) {
+            wrapper.querySelector('.node')?.classList.remove('context-ancestor');
+        }
+        for (const edge of this.edgeElements.values()) {
+            edge.classList.remove('context-highlight');
+        }
+        
+        // Apply new highlights
+        for (const nodeId of ancestorIds) {
+            const wrapper = this.nodeElements.get(nodeId);
+            if (wrapper && !this.selectedNodes.has(nodeId)) {
+                wrapper.querySelector('.node')?.classList.add('context-ancestor');
+            }
+        }
+    }
+
+    // --- Edge Rendering ---
+
+    /**
+     * Render an edge as a bezier curve
+     */
+    renderEdge(edge, sourcePos, targetPos) {
+        // Remove existing
+        this.removeEdge(edge.id);
+        
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('class', `edge ${edge.type}`);
+        path.setAttribute('data-edge-id', edge.id);
+        path.setAttribute('data-source', edge.source);
+        path.setAttribute('data-target', edge.target);
+        
+        // Calculate bezier curve
+        const d = this.calculateBezierPath(sourcePos, targetPos);
+        path.setAttribute('d', d);
+        
+        this.edgesLayer.appendChild(path);
+        this.edgeElements.set(edge.id, path);
+        
+        return path;
+    }
+
+    /**
+     * Calculate bezier curve path between two positions
+     */
+    calculateBezierPath(source, target) {
+        // Source: right edge of source node
+        const sourceX = source.x + 320; // Node width
+        const sourceY = source.y + 50;  // Approximate center
+        
+        // Target: left edge of target node
+        const targetX = target.x;
+        const targetY = target.y + 50;
+        
+        // Control points for smooth curve
+        const dx = targetX - sourceX;
+        const controlOffset = Math.min(Math.abs(dx) * 0.5, 150);
+        
+        const cp1x = sourceX + controlOffset;
+        const cp1y = sourceY;
+        const cp2x = targetX - controlOffset;
+        const cp2y = targetY;
+        
+        return `M ${sourceX} ${sourceY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${targetX} ${targetY}`;
+    }
+
+    /**
+     * Update edge positions when a node moves
+     */
+    updateEdgesForNode(nodeId, newPos) {
+        for (const [edgeId, path] of this.edgeElements) {
+            const sourceId = path.getAttribute('data-source');
+            const targetId = path.getAttribute('data-target');
+            
+            if (sourceId === nodeId || targetId === nodeId) {
+                // Get positions
+                const sourceWrapper = this.nodeElements.get(sourceId);
+                const targetWrapper = this.nodeElements.get(targetId);
+                
+                if (sourceWrapper && targetWrapper) {
+                    const sourcePos = {
+                        x: parseFloat(sourceWrapper.getAttribute('x')),
+                        y: parseFloat(sourceWrapper.getAttribute('y'))
+                    };
+                    const targetPos = {
+                        x: parseFloat(targetWrapper.getAttribute('x')),
+                        y: parseFloat(targetWrapper.getAttribute('y'))
+                    };
+                    
+                    // Update if this is the moved node
+                    if (sourceId === nodeId) {
+                        sourcePos.x = newPos.x;
+                        sourcePos.y = newPos.y;
+                    }
+                    if (targetId === nodeId) {
+                        targetPos.x = newPos.x;
+                        targetPos.y = newPos.y;
+                    }
+                    
+                    const d = this.calculateBezierPath(sourcePos, targetPos);
+                    path.setAttribute('d', d);
+                }
+            }
+        }
+    }
+
+    /**
+     * Remove an edge from the canvas
+     */
+    removeEdge(edgeId) {
+        const path = this.edgeElements.get(edgeId);
+        if (path) {
+            path.remove();
+            this.edgeElements.delete(edgeId);
+        }
+    }
+
+    // --- Utilities ---
+
+    getNodeTypeLabel(type) {
+        const labels = {
+            [NodeType.HUMAN]: 'You',
+            [NodeType.AI]: 'AI',
+            [NodeType.NOTE]: 'Note',
+            [NodeType.SUMMARY]: 'Summary',
+            [NodeType.REFERENCE]: 'Reference'
+        };
+        return labels[type] || type;
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    /**
+     * Render markdown to HTML
+     */
+    renderMarkdown(text) {
+        if (!text) return '';
+        
+        // Normalize spurious newlines that may have been introduced by SSE streaming
+        // Replace single newlines between non-newline characters with spaces
+        // (preserves intentional double-newlines for paragraph breaks)
+        text = text.replace(/([^\n])\n([^\n])/g, '$1 $2');
+        
+        // Check if marked is available
+        if (typeof marked !== 'undefined') {
+            try {
+                // Configure marked for safety
+                marked.setOptions({
+                    breaks: false,  // Don't convert \n to <br> - use proper paragraphs
+                    gfm: true,      // GitHub Flavored Markdown
+                });
+                return marked.parse(text);
+            } catch (e) {
+                console.error('Markdown parsing error:', e);
+                return this.escapeHtml(text);
+            }
+        }
+        
+        // Fallback to escaped HTML if marked not loaded
+        return this.escapeHtml(text);
+    }
+
+    /**
+     * Clear all nodes and edges from canvas
+     */
+    clear() {
+        this.nodesLayer.innerHTML = '';
+        this.edgesLayer.innerHTML = '';
+        this.nodeElements.clear();
+        this.edgeElements.clear();
+        this.selectedNodes.clear();
+    }
+
+    /**
+     * Render entire graph
+     */
+    renderGraph(graph) {
+        this.clear();
+        
+        // Render nodes first
+        for (const node of graph.getAllNodes()) {
+            this.renderNode(node);
+        }
+        
+        // Then render edges
+        for (const edge of graph.getAllEdges()) {
+            const sourceNode = graph.getNode(edge.source);
+            const targetNode = graph.getNode(edge.target);
+            if (sourceNode && targetNode) {
+                this.renderEdge(edge, sourceNode.position, targetNode.position);
+            }
+        }
+    }
+}
+
+// Export
+window.Canvas = Canvas;
