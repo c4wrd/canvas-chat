@@ -35,6 +35,13 @@ class Chat {
     }
 
     /**
+     * Get the custom base URL if configured
+     */
+    getBaseUrl() {
+        return storage.getBaseUrl();
+    }
+
+    /**
      * Get context window size for a model
      */
     getContextWindow(modelId) {
@@ -59,19 +66,26 @@ class Chat {
         this.abortController = new AbortController();
 
         const apiKey = this.getApiKeyForModel(model);
+        const baseUrl = this.getBaseUrl();
 
         try {
+            const requestBody = {
+                messages,
+                model,
+                api_key: apiKey,
+                temperature: 0.7,
+            };
+            
+            if (baseUrl) {
+                requestBody.base_url = baseUrl;
+            }
+
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                    messages,
-                    model,
-                    api_key: apiKey,
-                    temperature: 0.7,
-                }),
+                body: JSON.stringify(requestBody),
                 signal: this.abortController.signal,
             });
 
@@ -156,18 +170,25 @@ class Chat {
      */
     async summarize(messages, model) {
         const apiKey = this.getApiKeyForModel(model);
+        const baseUrl = this.getBaseUrl();
 
         try {
+            const requestBody = {
+                messages,
+                model,
+                api_key: apiKey,
+            };
+            
+            if (baseUrl) {
+                requestBody.base_url = baseUrl;
+            }
+
             const response = await fetch('/api/summarize', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                    messages,
-                    model,
-                    api_key: apiKey,
-                }),
+                body: JSON.stringify(requestBody),
             });
 
             if (!response.ok) {

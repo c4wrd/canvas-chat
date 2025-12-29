@@ -153,6 +153,23 @@ html, body {
     background: var(--bg-secondary);
 }
 
+.auto-title-btn {
+    font-size: 14px;
+    padding: 4px 6px;
+    opacity: 0.6;
+    transition: opacity 0.15s, transform 0.15s;
+}
+
+.auto-title-btn:hover {
+    opacity: 1;
+    transform: scale(1.1);
+}
+
+.auto-title-btn:disabled {
+    cursor: wait;
+    opacity: 0.4;
+}
+
 /* Context Budget Bar */
 .context-budget {
     display: flex;

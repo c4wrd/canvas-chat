@@ -257,6 +257,24 @@ class Storage {
     setLastSessionId(id) {
         localStorage.setItem('canvas-chat-last-session', id);
     }
+
+    /**
+     * Get the custom base URL for LLM proxy
+     */
+    getBaseUrl() {
+        return localStorage.getItem('canvas-chat-base-url') || null;
+    }
+
+    /**
+     * Save the custom base URL for LLM proxy
+     */
+    setBaseUrl(url) {
+        if (url) {
+            localStorage.setItem('canvas-chat-base-url', url);
+        } else {
+            localStorage.removeItem('canvas-chat-base-url');
+        }
+    }
 }
 
 // Export singleton instance

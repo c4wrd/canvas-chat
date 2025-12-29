@@ -59,6 +59,7 @@ class ChatRequest(BaseModel):
     messages: list[Message]
     model: str = "openai/gpt-4o-mini"
     api_key: Optional[str] = None
+    base_url: Optional[str] = None
     temperature: float = 0.7
     max_tokens: Optional[int] = None
 
@@ -69,6 +70,7 @@ class SummarizeRequest(BaseModel):
     messages: list[Message]
     model: str = "openai/gpt-4o-mini"
     api_key: Optional[str] = None
+    base_url: Optional[str] = None
 
 
 class ModelInfo(BaseModel):
@@ -307,6 +309,10 @@ async def chat(request: ChatRequest, http_request: Request):
     if request.api_key:
         kwargs["api_key"] = request.api_key
 
+    # Add base URL if provided (for custom LLM proxies)
+    if request.base_url:
+        kwargs["base_url"] = request.base_url
+
     async def generate():
         """Generate SSE events from the LLM stream."""
         try:
@@ -361,6 +367,9 @@ Summary:"""
 
     if request.api_key:
         kwargs["api_key"] = request.api_key
+
+    if request.base_url:
+        kwargs["base_url"] = request.base_url
 
     try:
         response = await litellm.acompletion(**kwargs)
@@ -497,6 +506,7 @@ class ParseListRequest(BaseModel):
     content: str
     model: str = "openai/gpt-4o-mini"
     api_key: Optional[str] = None
+    base_url: Optional[str] = None
 
 
 class MatrixFillRequest(BaseModel):
@@ -508,6 +518,16 @@ class MatrixFillRequest(BaseModel):
     messages: list[Message]  # DAG history for additional context
     model: str = "openai/gpt-4o-mini"
     api_key: Optional[str] = None
+    base_url: Optional[str] = None
+
+
+class GenerateTitleRequest(BaseModel):
+    """Request body for generating a session title."""
+
+    content: str  # Summary of conversation content
+    model: str = "openai/gpt-4o-mini"
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
 
 
 @app.post("/api/parse-list")
@@ -546,6 +566,9 @@ Example output: ["Item one full text", "Item two full text", "Item three full te
         if api_key:
             kwargs["api_key"] = api_key
 
+        if request.base_url:
+            kwargs["base_url"] = request.base_url
+
         response = await litellm.acompletion(**kwargs)
         content = response.choices[0].message.content.strip()
 
@@ -583,6 +606,7 @@ class ParseTwoListsRequest(BaseModel):
     context: str  # User-provided matrix context to help identify the two lists
     model: str = "openai/gpt-4o-mini"
     api_key: Optional[str] = None
+    base_url: Optional[str] = None
 
 
 @app.post("/api/parse-two-lists")
@@ -626,6 +650,9 @@ Example output: {{"rows": ["Row item 1", "Row item 2"], "columns": ["Column A", 
         api_key = get_api_key_for_provider(provider, request.api_key)
         if api_key:
             kwargs["api_key"] = api_key
+
+        if request.base_url:
+            kwargs["base_url"] = request.base_url
 
         response = await litellm.acompletion(**kwargs)
         content = response.choices[0].message.content.strip()
@@ -708,6 +735,9 @@ Evaluate this intersection:"""
             if api_key:
                 kwargs["api_key"] = api_key
 
+            if request.base_url:
+                kwargs["base_url"] = request.base_url
+
             response = await litellm.acompletion(**kwargs)
 
             async for chunk in response:
@@ -723,6 +753,70 @@ Evaluate this intersection:"""
             yield {"event": "error", "data": str(e)}
 
     return EventSourceResponse(generate())
+
+
+@app.post("/api/generate-title")
+async def generate_title(request: GenerateTitleRequest):
+    """
+    Generate a session title based on conversation content.
+
+    Returns a short, descriptive title for the canvas session.
+    """
+    logger.info(f"Generate title request: content length={len(request.content)}")
+
+    provider = extract_provider(request.model)
+
+    system_prompt = """Generate a short, descriptive title for a conversation/session based on the content provided.
+
+Rules:
+- Return ONLY the title text, no quotes or extra formatting
+- Keep it concise: 3-6 words is ideal
+- Make it descriptive of the main topic or theme
+- Use title case
+- Do not include generic words like "Discussion" or "Chat" unless truly relevant
+- If content mentions specific topics, technologies, or concepts, include them
+
+Examples of good titles:
+- "Python API Design Patterns"
+- "Marketing Strategy Q1 2025"
+- "Machine Learning Model Optimization"
+- "React Component Architecture"
+"""
+
+    try:
+        kwargs = {
+            "model": request.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": f"Generate a title for this conversation:\n\n{request.content}",
+                },
+            ],
+            "temperature": 0.7,
+            "max_tokens": 50,
+        }
+
+        api_key = get_api_key_for_provider(provider, request.api_key)
+        if api_key:
+            kwargs["api_key"] = api_key
+
+        if request.base_url:
+            kwargs["base_url"] = request.base_url
+
+        response = await litellm.acompletion(**kwargs)
+        title = response.choices[0].message.content.strip()
+
+        # Clean up any quotes or extra formatting
+        title = title.strip("\"'")
+
+        logger.info(f"Generated title: {title}")
+        return {"title": title}
+
+    except Exception as e:
+        logger.error(f"Generate title failed: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

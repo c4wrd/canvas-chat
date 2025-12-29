@@ -159,6 +159,11 @@ class App {
         // Session name (click to edit)
         this.sessionName.addEventListener('click', () => this.editSessionName());
         
+        // Auto-title button
+        document.getElementById('auto-title-btn').addEventListener('click', () => {
+            this.generateSessionTitle();
+        });
+        
         // Settings modal
         document.getElementById('settings-btn').addEventListener('click', () => {
             this.showSettingsModal();
@@ -638,7 +643,7 @@ class App {
         }
         
         const model = this.modelPicker.value;
-        const apiKey = this.getApiKeyForModel(model);
+        const apiKey = chat.getApiKeyForModel(model);
         
         // Show loading state
         const loadingModal = document.getElementById('matrix-modal');
@@ -703,15 +708,22 @@ class App {
     }
     
     async parseTwoLists(content, context, model, apiKey) {
+        const baseUrl = chat.getBaseUrl();
+        const requestBody = {
+            content,
+            context,
+            model,
+            api_key: apiKey
+        };
+        
+        if (baseUrl) {
+            requestBody.base_url = baseUrl;
+        }
+        
         const response = await fetch('/api/parse-two-lists', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                content,
-                context,
-                model,
-                api_key: apiKey
-            })
+            body: JSON.stringify(requestBody)
         });
         
         if (!response.ok) {
@@ -722,14 +734,21 @@ class App {
     }
     
     async parseListItems(content, model, apiKey) {
+        const baseUrl = chat.getBaseUrl();
+        const requestBody = {
+            content,
+            model,
+            api_key: apiKey
+        };
+        
+        if (baseUrl) {
+            requestBody.base_url = baseUrl;
+        }
+        
         const response = await fetch('/api/parse-list', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                content,
-                model,
-                api_key: apiKey
-            })
+            body: JSON.stringify(requestBody)
         });
         
         if (!response.ok) {
@@ -858,7 +877,8 @@ class App {
         if (!matrixNode || matrixNode.type !== NodeType.MATRIX) return;
         
         const model = this.modelPicker.value;
-        const apiKey = this.getApiKeyForModel(model);
+        const apiKey = chat.getApiKeyForModel(model);
+        const baseUrl = chat.getBaseUrl();
         
         const rowItem = matrixNode.rowItems[row];
         const colItem = matrixNode.colItems[col];
@@ -868,18 +888,24 @@ class App {
         const messages = this.graph.resolveContext([nodeId]);
         
         try {
+            const requestBody = {
+                row_item: rowItem,
+                col_item: colItem,
+                context: context,
+                messages: messages.map(m => ({ role: m.role, content: m.content })),
+                model,
+                api_key: apiKey
+            };
+            
+            if (baseUrl) {
+                requestBody.base_url = baseUrl;
+            }
+            
             // Start streaming fill
             const response = await fetch('/api/matrix/fill', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    row_item: rowItem,
-                    col_item: colItem,
-                    context: context,
-                    messages: messages.map(m => ({ role: m.role, content: m.content })),
-                    model,
-                    api_key: apiKey
-                })
+                body: JSON.stringify(requestBody)
             });
             
             if (!response.ok) {
@@ -1308,6 +1334,85 @@ class App {
         }
     }
 
+    async generateSessionTitle() {
+        // Check if there's any content to generate a title from
+        if (this.graph.isEmpty()) {
+            alert('Add some messages first to generate a title.');
+            return;
+        }
+        
+        const btn = document.getElementById('auto-title-btn');
+        const originalContent = btn.textContent;
+        
+        try {
+            // Show loading state
+            btn.textContent = '⏳';
+            btn.disabled = true;
+            
+            // Gather content from root nodes and their immediate replies
+            const nodes = this.graph.getAllNodes();
+            const contentParts = [];
+            
+            // Get first few nodes (prioritize human messages)
+            const humanNodes = nodes.filter(n => n.type === NodeType.HUMAN);
+            const aiNodes = nodes.filter(n => n.type === NodeType.AI);
+            
+            // Take first 3 human messages and first 2 AI responses
+            for (const node of humanNodes.slice(0, 3)) {
+                contentParts.push(`User: ${node.content.slice(0, 200)}`);
+            }
+            for (const node of aiNodes.slice(0, 2)) {
+                contentParts.push(`Assistant: ${node.content.slice(0, 200)}`);
+            }
+            
+            const content = contentParts.join('\n\n');
+            
+            if (!content.trim()) {
+                alert('Not enough content to generate a title.');
+                return;
+            }
+            
+            const model = this.modelPicker.value;
+            const apiKey = chat.getApiKeyForModel(model);
+            const baseUrl = chat.getBaseUrl();
+            
+            const requestBody = {
+                content,
+                model,
+                api_key: apiKey
+            };
+            
+            if (baseUrl) {
+                requestBody.base_url = baseUrl;
+            }
+            
+            const response = await fetch('/api/generate-title', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Failed to generate title: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            
+            // Update session name
+            this.session.name = data.title;
+            this.sessionName.textContent = data.title;
+            this.saveSession();
+            
+        } catch (err) {
+            console.error('Failed to generate title:', err);
+            alert(`Failed to generate title: ${err.message}`);
+        } finally {
+            // Restore button
+            btn.textContent = originalContent;
+            btn.disabled = false;
+        }
+    }
+
     exportSession() {
         storage.exportSession(this.session);
     }
@@ -1355,6 +1460,9 @@ class App {
         document.getElementById('groq-key').value = keys.groq || '';
         document.getElementById('github-key').value = keys.github || '';
         document.getElementById('exa-key').value = keys.exa || '';
+        
+        // Load base URL
+        document.getElementById('base-url').value = storage.getBaseUrl() || '';
     }
 
     hideSettingsModal() {
@@ -1372,6 +1480,11 @@ class App {
         };
         
         storage.saveApiKeys(keys);
+        
+        // Save base URL
+        const baseUrl = document.getElementById('base-url').value.trim();
+        storage.setBaseUrl(baseUrl);
+        
         this.hideSettingsModal();
     }
 

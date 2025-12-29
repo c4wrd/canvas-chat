@@ -14,6 +14,7 @@
         <div class="toolbar-left">
             <h1 class="logo">Canvas Chat</h1>
             <div class="session-name" id="session-name">Untitled Session</div>
+            <button id="auto-title-btn" class="icon-btn auto-title-btn" title="Generate title from conversation">✨</button>
         </div>
         <div class="toolbar-center">
             <div class="context-budget" id="context-budget">
@@ -150,6 +151,15 @@
                     <label for="exa-key">Exa API Key (for web search)</label>
                     <input type="password" id="exa-key" placeholder="exa-...">
                     <small class="key-hint">Use <code>/search query</code> to search the web. <a href="https://dashboard.exa.ai/api-keys" target="_blank">Get API key</a></small>
+                </div>
+                
+                <h3>LLM Proxy</h3>
+                <p class="settings-note">Configure a custom base URL to use your own LLM proxy (e.g., LiteLLM proxy, OpenRouter).</p>
+                
+                <div class="api-key-group">
+                    <label for="base-url">Base URL (optional)</label>
+                    <input type="text" id="base-url" placeholder="https://your-proxy.example.com/v1">
+                    <small class="key-hint">Leave empty to use default provider endpoints. Supports OpenAI-compatible APIs.</small>
                 </div>
                 
                 <button id="save-settings-btn" class="primary-btn">Save Settings</button>
