@@ -13,7 +13,9 @@ const NodeType = {
     REFERENCE: 'reference',
     SEARCH: 'search',      // Web search query node
     RESEARCH: 'research',  // Exa deep research node
-    HIGHLIGHT: 'highlight' // Excerpted text from another node
+    HIGHLIGHT: 'highlight', // Excerpted text from another node
+    MATRIX: 'matrix',      // Cross-product evaluation table
+    CELL: 'cell'           // Pinned cell from a matrix
 };
 
 /**
@@ -25,7 +27,8 @@ const EdgeType = {
     MERGE: 'merge',           // Multi-select merge
     REFERENCE: 'reference',   // Reference link
     SEARCH_RESULT: 'search_result', // Link from search to results
-    HIGHLIGHT: 'highlight'    // Link from source to highlighted excerpt
+    HIGHLIGHT: 'highlight',   // Link from source to highlighted excerpt
+    MATRIX_CELL: 'matrix_cell' // Link from pinned cell to matrix
 };
 
 /**
@@ -40,6 +43,53 @@ function createNode(type, content, options = {}) {
         created_at: Date.now(),
         model: options.model || null,
         selection: options.selection || null, // For branch-from-selection
+        ...options
+    };
+}
+
+/**
+ * Create a matrix node for cross-product evaluation
+ */
+function createMatrixNode(context, rowNodeId, colNodeId, rowItems, colItems, options = {}) {
+    // Initialize empty cells object
+    const cells = {};
+    for (let r = 0; r < rowItems.length; r++) {
+        for (let c = 0; c < colItems.length; c++) {
+            cells[`${r}-${c}`] = { content: null, filled: false };
+        }
+    }
+    
+    return {
+        id: crypto.randomUUID(),
+        type: NodeType.MATRIX,
+        content: '', // Not used for display
+        context,     // User-provided context for the evaluation
+        rowNodeId,   // Source node for row items
+        colNodeId,   // Source node for column items
+        rowItems,    // Array of row item strings
+        colItems,    // Array of column item strings
+        cells,       // Object keyed by "rowIdx-colIdx"
+        position: options.position || { x: 0, y: 0 },
+        created_at: Date.now(),
+        ...options
+    };
+}
+
+/**
+ * Create a cell node (pinned from a matrix)
+ */
+function createCellNode(matrixId, rowIndex, colIndex, rowItem, colItem, content, options = {}) {
+    return {
+        id: crypto.randomUUID(),
+        type: NodeType.CELL,
+        content,
+        matrixId,
+        rowIndex,
+        colIndex,
+        rowItem,
+        colItem,
+        position: options.position || { x: 0, y: 0 },
+        created_at: Date.now(),
         ...options
     };
 }
@@ -254,13 +304,15 @@ class Graph {
         }
         
         // Convert to array and sort by created_at
+        // Include all node types in context - any node in the DAG history is relevant
         const sorted = Array.from(allAncestors.values())
-            .filter(node => [NodeType.HUMAN, NodeType.AI, NodeType.SUMMARY].includes(node.type))
             .sort((a, b) => a.created_at - b.created_at);
         
         // Convert to message format for API
+        // User-generated content types are mapped to 'user' role, AI-generated to 'assistant'
+        const userTypes = [NodeType.HUMAN, NodeType.HIGHLIGHT, NodeType.NOTE];
         return sorted.map(node => ({
-            role: node.type === NodeType.HUMAN ? 'user' : 'assistant',
+            role: userTypes.includes(node.type) ? 'user' : 'assistant',
             content: node.content,
             nodeId: node.id
         }));

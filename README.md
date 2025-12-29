@@ -10,6 +10,7 @@ A visual, non-linear chat interface where conversations are nodes on an infinite
 - **Multi-Select & Merge**: Select multiple nodes to combine context
 - **Context Visualization**: See which messages are included in your context
 - **Auto-Layout**: Automatically arrange nodes in a clean left-to-right hierarchy
+- **Matrix Evaluation**: Use `/matrix <context>` to create cross-product evaluation tables
 - **Web Research**: Use `/research <topic>` to generate research reports via Exa
 - **Web Search**: Use `/search <query>` to search the web via Exa
 - **Multiple LLM Providers**: Support for OpenAI, Anthropic, Google, Groq, and local models via Ollama
@@ -70,8 +71,9 @@ Keys are stored locally in your browser's localStorage.
 5. **Auto-layout**: Click 🔀 to automatically arrange all nodes
 6. **Search the web**: Type `/search <query>` to search via Exa
 7. **Research a topic**: Type `/research <topic>` to generate a research report
-8. **Navigate**: Drag the handle (⋮⋮) to move nodes, scroll to zoom, double-click canvas to fit content
-9. **Export**: Click 💾 to save your session as a `.canvaschat` file
+8. **Create a matrix**: Select 2 nodes with lists, type `/matrix <context>` to create an evaluation table
+9. **Navigate**: Drag the handle (⋮⋮) to move nodes, scroll to zoom, double-click canvas to fit content
+10. **Export**: Click 💾 to save your session as a `.canvaschat` file
 
 ## Tech Stack
 

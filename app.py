@@ -15,6 +15,7 @@ Conversations are nodes on an infinite canvas, allowing branching,
 merging, and exploration of topics as a DAG.
 """
 
+import json
 import logging
 import traceback
 from pathlib import Path
@@ -472,8 +473,6 @@ async def exa_research(request: ExaResearchRequest):
                     yield {"event": "content", "data": event.output}
                 if hasattr(event, "sources") and event.sources:
                     # Send sources as JSON
-                    import json
-
                     sources_data = [
                         {"title": s.title, "url": s.url} for s in event.sources
                     ]
@@ -483,6 +482,159 @@ async def exa_research(request: ExaResearchRequest):
 
         except Exception as e:
             logger.error(f"Exa research failed: {e}")
+            logger.error(traceback.format_exc())
+            yield {"event": "error", "data": str(e)}
+
+    return EventSourceResponse(generate())
+
+
+# --- Matrix Endpoints ---
+
+
+class ParseListRequest(BaseModel):
+    """Request body for parsing list items from node content."""
+
+    content: str
+    model: str = "openai/gpt-4o-mini"
+    api_key: Optional[str] = None
+
+
+class MatrixFillRequest(BaseModel):
+    """Request body for filling a matrix cell."""
+
+    row_item: str
+    col_item: str
+    context: str  # User-provided matrix context
+    messages: list[Message]  # DAG history for additional context
+    model: str = "openai/gpt-4o-mini"
+    api_key: Optional[str] = None
+
+
+@app.post("/api/parse-list")
+async def parse_list(request: ParseListRequest):
+    """
+    Use LLM to extract list items from freeform text content.
+
+    Returns a list of extracted items (max 10).
+    """
+    logger.info(f"Parse list request: content length={len(request.content)}")
+
+    provider = extract_provider(request.model)
+
+    system_prompt = """Extract distinct list items from the following text.
+Rules:
+- Return ONLY a JSON array of strings, no other text
+- Each item should be a complete, standalone item from the list
+- Preserve the full text of each item (don't truncate)
+- If items are numbered or bulleted, remove the numbering/bullets
+- Maximum 10 items - if there are more, pick the 10 most distinct ones
+- If no clear list structure exists, try to identify distinct concepts/topics
+
+Example output: ["Item one full text", "Item two full text", "Item three full text"]"""
+
+    try:
+        kwargs = {
+            "model": request.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": request.content},
+            ],
+            "temperature": 0.3,  # Lower temp for more consistent parsing
+        }
+
+        api_key = get_api_key_for_provider(provider, request.api_key)
+        if api_key:
+            kwargs["api_key"] = api_key
+
+        response = await litellm.acompletion(**kwargs)
+        content = response.choices[0].message.content.strip()
+
+        # Parse the JSON array from the response
+        # Handle potential markdown code blocks
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+            content = content.strip()
+
+        items = json.loads(content)
+
+        # Validate and limit to 10 items
+        if not isinstance(items, list):
+            raise ValueError("Response is not a list")
+        items = [str(item) for item in items[:10]]
+
+        logger.info(f"Parsed {len(items)} items from content")
+        return {"items": items, "count": len(items)}
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse LLM response as JSON: {e}")
+        raise HTTPException(status_code=500, detail="Failed to parse list items")
+    except Exception as e:
+        logger.error(f"Parse list failed: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/matrix/fill")
+async def matrix_fill(request: MatrixFillRequest):
+    """
+    Fill a single matrix cell by evaluating row item against column item.
+
+    Returns SSE stream with the evaluation content.
+    """
+    logger.info(
+        f"Matrix fill request: row_item={request.row_item[:50]}..., col_item={request.col_item[:50]}..."
+    )
+
+    provider = extract_provider(request.model)
+
+    async def generate():
+        try:
+            system_prompt = f"""You are evaluating items in a matrix.
+Matrix context: {request.context}
+
+You will be given a row item and a column item. Evaluate or analyze the row item against the column item.
+Be concise (2-3 sentences). Focus on the specific intersection of these two items.
+Do not repeat the item names in your response - get straight to the evaluation."""
+
+            # Build messages with history context
+            messages = [{"role": "system", "content": system_prompt}]
+
+            # Add conversation history for context (if any)
+            for msg in request.messages:
+                messages.append({"role": msg.role, "content": msg.content})
+
+            # Add the specific cell evaluation request
+            cell_prompt = f"""Row item: {request.row_item}
+
+Column item: {request.col_item}
+
+Evaluate this intersection:"""
+            messages.append({"role": "user", "content": cell_prompt})
+
+            kwargs = {
+                "model": request.model,
+                "messages": messages,
+                "temperature": 0.7,
+                "stream": True,
+            }
+
+            api_key = get_api_key_for_provider(provider, request.api_key)
+            if api_key:
+                kwargs["api_key"] = api_key
+
+            response = await litellm.acompletion(**kwargs)
+
+            async for chunk in response:
+                if chunk.choices[0].delta.content:
+                    content = chunk.choices[0].delta.content
+                    yield {"event": "content", "data": content}
+
+            yield {"event": "done", "data": ""}
+
+        except Exception as e:
+            logger.error(f"Matrix fill failed: {e}")
             logger.error(traceback.format_exc())
             yield {"event": "error", "data": str(e)}
 

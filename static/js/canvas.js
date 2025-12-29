@@ -426,8 +426,10 @@ class Canvas {
         this.removeNode(node.id);
         
         // Use stored dimensions or defaults
-        const width = node.width || 320;
-        const minHeight = node.height || 100;
+        // Matrix nodes need more width
+        const isMatrix = node.type === NodeType.MATRIX;
+        const width = node.width || (isMatrix ? 500 : 320);
+        const minHeight = node.height || (isMatrix ? 300 : 100);
         
         // Create foreignObject wrapper
         const wrapper = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
@@ -438,33 +440,38 @@ class Canvas {
         wrapper.setAttribute('height', minHeight);
         wrapper.setAttribute('data-node-id', node.id);
         
-        // Create node HTML
+        // Create node HTML - different for matrix nodes
         const div = document.createElement('div');
         div.className = `node ${node.type}`;
         div.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
         div.style.width = '100%';
         div.style.minHeight = '100%';
-        div.innerHTML = `
-            <div class="node-header">
-                <div class="drag-handle" title="Drag to move">
-                    <span class="grip-dot"></span><span class="grip-dot"></span>
-                    <span class="grip-dot"></span><span class="grip-dot"></span>
-                    <span class="grip-dot"></span><span class="grip-dot"></span>
+        
+        if (isMatrix) {
+            div.innerHTML = this.renderMatrixNodeContent(node);
+        } else {
+            div.innerHTML = `
+                <div class="node-header">
+                    <div class="drag-handle" title="Drag to move">
+                        <span class="grip-dot"></span><span class="grip-dot"></span>
+                        <span class="grip-dot"></span><span class="grip-dot"></span>
+                        <span class="grip-dot"></span><span class="grip-dot"></span>
+                    </div>
+                    <span class="node-type">${this.getNodeTypeLabel(node.type)}</span>
+                    <span class="node-model">${node.model || ''}</span>
+                    <button class="node-action delete-btn" title="Delete node">🗑️</button>
                 </div>
-                <span class="node-type">${this.getNodeTypeLabel(node.type)}</span>
-                <span class="node-model">${node.model || ''}</span>
-                <button class="node-action delete-btn" title="Delete node">🗑️</button>
-            </div>
-            <div class="node-content">${this.renderMarkdown(node.content)}</div>
-            <div class="node-actions">
-                <button class="node-action reply-btn" title="Reply">↩️ Reply</button>
-                ${node.type !== NodeType.NOTE ? '<button class="node-action branch-btn" title="Branch">🌿 Branch</button>' : ''}
-                ${node.type === NodeType.AI ? '<button class="node-action summarize-btn" title="Summarize">📝 Summarize</button>' : ''}
-            </div>
-            <div class="resize-handle resize-e" data-resize="e"></div>
-            <div class="resize-handle resize-s" data-resize="s"></div>
-            <div class="resize-handle resize-se" data-resize="se"></div>
-        `;
+                <div class="node-content">${this.renderMarkdown(node.content)}</div>
+                <div class="node-actions">
+                    <button class="node-action reply-btn" title="Reply">↩️ Reply</button>
+                    ${node.type !== NodeType.NOTE ? '<button class="node-action branch-btn" title="Branch">🌿 Branch</button>' : ''}
+                    ${node.type === NodeType.AI ? '<button class="node-action summarize-btn" title="Summarize">📝 Summarize</button>' : ''}
+                </div>
+                <div class="resize-handle resize-e" data-resize="e"></div>
+                <div class="resize-handle resize-s" data-resize="s"></div>
+                <div class="resize-handle resize-se" data-resize="se"></div>
+            `;
+        }
         
         wrapper.appendChild(div);
         this.nodesLayer.appendChild(wrapper);
@@ -634,6 +641,42 @@ class Canvas {
                 if (this.onNodeDelete) this.onNodeDelete(node.id);
             });
         }
+        
+        // Matrix-specific event handlers
+        if (node.type === NodeType.MATRIX) {
+            // Cell click handlers (for filling or viewing)
+            const cells = div.querySelectorAll('.matrix-cell');
+            cells.forEach(cell => {
+                cell.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const row = parseInt(cell.dataset.row);
+                    const col = parseInt(cell.dataset.col);
+                    
+                    if (cell.classList.contains('filled')) {
+                        // View filled cell
+                        if (this.onMatrixCellView) {
+                            this.onMatrixCellView(node.id, row, col);
+                        }
+                    } else {
+                        // Fill empty cell
+                        if (this.onMatrixCellFill) {
+                            this.onMatrixCellFill(node.id, row, col);
+                        }
+                    }
+                });
+            });
+            
+            // Fill all button
+            const fillAllBtn = div.querySelector('.matrix-fill-all-btn');
+            if (fillAllBtn) {
+                fillAllBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (this.onMatrixFillAll) {
+                        this.onMatrixFillAll(node.id);
+                    }
+                });
+            }
+        }
     }
 
     /**
@@ -660,6 +703,29 @@ class Canvas {
         const div = wrapper.querySelector('.node');
         if (div) {
             wrapper.setAttribute('height', div.offsetHeight + 10);
+        }
+    }
+    
+    /**
+     * Update a matrix cell (for streaming cell fills)
+     */
+    updateMatrixCell(nodeId, row, col, content, isStreaming = false) {
+        const wrapper = this.nodeElements.get(nodeId);
+        if (!wrapper) return;
+        
+        const cell = wrapper.querySelector(`.matrix-cell[data-row="${row}"][data-col="${col}"]`);
+        if (!cell) return;
+        
+        if (isStreaming) {
+            cell.classList.add('loading');
+            cell.classList.remove('empty');
+            cell.classList.add('filled');
+            cell.innerHTML = `<div class="matrix-cell-content">${this.escapeHtml(this.truncate(content, 50))}</div>`;
+        } else {
+            cell.classList.remove('loading');
+            cell.classList.add('filled');
+            cell.classList.remove('empty');
+            cell.innerHTML = `<div class="matrix-cell-content">${this.escapeHtml(this.truncate(content, 50))}</div>`;
         }
     }
 
@@ -865,7 +931,9 @@ class Canvas {
             [NodeType.REFERENCE]: 'Reference',
             [NodeType.SEARCH]: 'Search',
             [NodeType.RESEARCH]: 'Research',
-            [NodeType.HIGHLIGHT]: 'Highlight'
+            [NodeType.HIGHLIGHT]: 'Highlight',
+            [NodeType.MATRIX]: 'Matrix',
+            [NodeType.CELL]: 'Cell'
         };
         return labels[type] || type;
     }
@@ -874,6 +942,87 @@ class Canvas {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+    
+    truncate(text, maxLength) {
+        if (!text) return '';
+        if (text.length <= maxLength) return text;
+        return text.slice(0, maxLength - 1) + '…';
+    }
+    
+    /**
+     * Render matrix node HTML content
+     */
+    renderMatrixNodeContent(node) {
+        const { context, rowItems, colItems, cells } = node;
+        
+        // Build table HTML
+        let tableHtml = '<table class="matrix-table"><thead><tr>';
+        
+        // Corner cell with context
+        tableHtml += `<th class="corner-cell" title="${this.escapeHtml(context)}">${this.escapeHtml(this.truncate(context, 20))}</th>`;
+        
+        // Column headers
+        for (let c = 0; c < colItems.length; c++) {
+            const colItem = colItems[c];
+            tableHtml += `<th title="${this.escapeHtml(colItem)}">
+                <span class="matrix-header-text">${this.escapeHtml(this.truncate(colItem, 30))}</span>
+            </th>`;
+        }
+        tableHtml += '</tr></thead><tbody>';
+        
+        // Data rows
+        for (let r = 0; r < rowItems.length; r++) {
+            const rowItem = rowItems[r];
+            tableHtml += '<tr>';
+            
+            // Row header
+            tableHtml += `<td title="${this.escapeHtml(rowItem)}">
+                <span class="matrix-header-text">${this.escapeHtml(this.truncate(rowItem, 30))}</span>
+            </td>`;
+            
+            // Cells
+            for (let c = 0; c < colItems.length; c++) {
+                const cellKey = `${r}-${c}`;
+                const cell = cells[cellKey];
+                const isFilled = cell && cell.filled && cell.content;
+                
+                if (isFilled) {
+                    tableHtml += `<td class="matrix-cell filled" data-row="${r}" data-col="${c}" title="Click to view details">
+                        <div class="matrix-cell-content">${this.escapeHtml(this.truncate(cell.content, 50))}</div>
+                    </td>`;
+                } else {
+                    tableHtml += `<td class="matrix-cell empty" data-row="${r}" data-col="${c}">
+                        <div class="matrix-cell-empty">
+                            <button class="matrix-cell-fill" title="Fill this cell">+</button>
+                        </div>
+                    </td>`;
+                }
+            }
+            tableHtml += '</tr>';
+        }
+        tableHtml += '</tbody></table>';
+        
+        return `
+            <div class="node-header">
+                <div class="drag-handle" title="Drag to move">
+                    <span class="grip-dot"></span><span class="grip-dot"></span>
+                    <span class="grip-dot"></span><span class="grip-dot"></span>
+                    <span class="grip-dot"></span><span class="grip-dot"></span>
+                </div>
+                <span class="node-type">Matrix</span>
+                <button class="node-action delete-btn" title="Delete node">🗑️</button>
+            </div>
+            <div class="node-content matrix-table-container">
+                ${tableHtml}
+            </div>
+            <div class="matrix-actions">
+                <button class="matrix-fill-all-btn" title="Fill all empty cells">Fill All</button>
+            </div>
+            <div class="resize-handle resize-e" data-resize="e"></div>
+            <div class="resize-handle resize-s" data-resize="s"></div>
+            <div class="resize-handle resize-se" data-resize="se"></div>
+        `;
     }
 
     /**

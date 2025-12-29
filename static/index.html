@@ -153,6 +153,85 @@
     <!-- Hidden file input for import -->
     <input type="file" id="import-file-input" accept=".canvaschat" style="display: none;">
 
+    <!-- Matrix Axis Confirmation Modal -->
+    <div id="matrix-modal" class="modal" style="display: none;">
+        <div class="modal-content modal-wide">
+            <div class="modal-header">
+                <h2>Create Matrix</h2>
+                <button class="modal-close" id="matrix-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="matrix-context-group">
+                    <label for="matrix-context">Matrix Context</label>
+                    <input type="text" id="matrix-context" placeholder="e.g., evaluate ideas against criteria" readonly>
+                </div>
+                
+                <div class="matrix-axes">
+                    <div class="matrix-axis">
+                        <div class="axis-header">
+                            <h3>Rows</h3>
+                            <span class="axis-count" id="row-count">0 items</span>
+                        </div>
+                        <ul class="axis-items" id="row-items">
+                            <!-- Row items will be populated here -->
+                        </ul>
+                    </div>
+                    
+                    <div class="matrix-swap">
+                        <button id="swap-axes-btn" class="icon-btn" title="Swap Axes">⇄</button>
+                    </div>
+                    
+                    <div class="matrix-axis">
+                        <div class="axis-header">
+                            <h3>Columns</h3>
+                            <span class="axis-count" id="col-count">0 items</span>
+                        </div>
+                        <ul class="axis-items" id="col-items">
+                            <!-- Column items will be populated here -->
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="matrix-warning" id="matrix-warning" style="display: none;">
+                    ⚠️ Maximum 10 items per axis. Some items have been truncated.
+                </div>
+                
+                <div class="modal-actions">
+                    <button id="matrix-cancel-btn" class="secondary-btn">Cancel</button>
+                    <button id="matrix-create-btn" class="primary-btn">Create Matrix</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cell Detail Modal -->
+    <div id="cell-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Cell Details</h2>
+                <button class="modal-close" id="cell-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="cell-detail-row">
+                    <label>Row:</label>
+                    <div class="cell-detail-content" id="cell-row-item"></div>
+                </div>
+                <div class="cell-detail-row">
+                    <label>Column:</label>
+                    <div class="cell-detail-content" id="cell-col-item"></div>
+                </div>
+                <div class="cell-detail-row">
+                    <label>Evaluation:</label>
+                    <div class="cell-detail-content cell-evaluation" id="cell-content"></div>
+                </div>
+                <div class="modal-actions">
+                    <button id="cell-close-btn" class="secondary-btn">Close</button>
+                    <button id="cell-pin-btn" class="primary-btn">📌 Pin to Canvas</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="/static/js/storage.js"></script>
     <script src="/static/js/graph.js"></script>
