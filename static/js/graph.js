@@ -637,15 +637,269 @@ class Graph {
         
         return result;
     }
-
+    
     /**
-     * Serialize to plain object for storage
+     * Force-directed layout using simple simulation.
+     * Nodes repel each other, edges act as springs.
+     * @param {Map} dimensions - Optional map of nodeId -> { width, height } from canvas
      */
-    toJSON() {
-        return {
-            nodes: Array.from(this.nodes.values()),
-            edges: this.edges
+    forceDirectedLayout(dimensions = new Map()) {
+        const DEFAULT_WIDTH = 360;
+        const DEFAULT_HEIGHT = 220;
+        const ITERATIONS = 100;
+        const REPULSION = 50000;      // Repulsion force between nodes
+        const ATTRACTION = 0.05;       // Spring constant for edges
+        const DAMPING = 0.85;          // Velocity damping
+        const MIN_DISTANCE = 50;       // Minimum distance between nodes
+        const IDEAL_EDGE_LENGTH = 400; // Ideal edge length
+        
+        const allNodes = this.getAllNodes();
+        if (allNodes.length === 0) return;
+        
+        // Helper to get node dimensions
+        const getNodeSize = (node) => {
+            const dim = dimensions.get(node.id);
+            if (dim) {
+                return { width: dim.width, height: dim.height };
+            }
+            return { 
+                width: node.width || DEFAULT_WIDTH, 
+                height: node.height || DEFAULT_HEIGHT 
+            };
         };
+        
+        // Initialize velocities
+        const velocities = new Map();
+        for (const node of allNodes) {
+            velocities.set(node.id, { x: 0, y: 0 });
+        }
+        
+        // If nodes don't have positions, spread them out initially
+        const unpositioned = allNodes.filter(n => !n.position || (n.position.x === 0 && n.position.y === 0));
+        if (unpositioned.length > 0) {
+            const cols = Math.ceil(Math.sqrt(allNodes.length));
+            allNodes.forEach((node, i) => {
+                if (!node.position) {
+                    node.position = { 
+                        x: 200 + (i % cols) * 400, 
+                        y: 200 + Math.floor(i / cols) * 300 
+                    };
+                }
+            });
+        }
+        
+        // Run simulation
+        for (let iter = 0; iter < ITERATIONS; iter++) {
+            const forces = new Map();
+            for (const node of allNodes) {
+                forces.set(node.id, { x: 0, y: 0 });
+            }
+            
+            // Calculate repulsion forces between all pairs
+            for (let i = 0; i < allNodes.length; i++) {
+                for (let j = i + 1; j < allNodes.length; j++) {
+                    const nodeA = allNodes[i];
+                    const nodeB = allNodes[j];
+                    const sizeA = getNodeSize(nodeA);
+                    const sizeB = getNodeSize(nodeB);
+                    
+                    // Calculate center-to-center distance
+                    const centerAx = nodeA.position.x + sizeA.width / 2;
+                    const centerAy = nodeA.position.y + sizeA.height / 2;
+                    const centerBx = nodeB.position.x + sizeB.width / 2;
+                    const centerBy = nodeB.position.y + sizeB.height / 2;
+                    
+                    const dx = centerBx - centerAx;
+                    const dy = centerBy - centerAy;
+                    const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+                    
+                    // Minimum separation based on node sizes
+                    const minSep = (sizeA.width + sizeB.width) / 2 + MIN_DISTANCE;
+                    
+                    // Repulsion force (Coulomb's law)
+                    const force = REPULSION / (distance * distance);
+                    const fx = (dx / distance) * force;
+                    const fy = (dy / distance) * force;
+                    
+                    // Apply to both nodes in opposite directions
+                    forces.get(nodeA.id).x -= fx;
+                    forces.get(nodeA.id).y -= fy;
+                    forces.get(nodeB.id).x += fx;
+                    forces.get(nodeB.id).y += fy;
+                    
+                    // Extra repulsion if overlapping
+                    if (distance < minSep) {
+                        const overlapForce = (minSep - distance) * 2;
+                        const ofx = (dx / distance) * overlapForce;
+                        const ofy = (dy / distance) * overlapForce;
+                        forces.get(nodeA.id).x -= ofx;
+                        forces.get(nodeA.id).y -= ofy;
+                        forces.get(nodeB.id).x += ofx;
+                        forces.get(nodeB.id).y += ofy;
+                    }
+                }
+            }
+            
+            // Calculate attraction forces along edges
+            for (const node of allNodes) {
+                const children = this.getChildren(node.id);
+                const parents = this.getParents(node.id);
+                const connected = [...children, ...parents];
+                
+                for (const other of connected) {
+                    const sizeA = getNodeSize(node);
+                    const sizeB = getNodeSize(other);
+                    
+                    const centerAx = node.position.x + sizeA.width / 2;
+                    const centerAy = node.position.y + sizeA.height / 2;
+                    const centerBx = other.position.x + sizeB.width / 2;
+                    const centerBy = other.position.y + sizeB.height / 2;
+                    
+                    const dx = centerBx - centerAx;
+                    const dy = centerBy - centerAy;
+                    const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+                    
+                    // Spring force (Hooke's law)
+                    const displacement = distance - IDEAL_EDGE_LENGTH;
+                    const force = ATTRACTION * displacement;
+                    const fx = (dx / distance) * force;
+                    const fy = (dy / distance) * force;
+                    
+                    forces.get(node.id).x += fx;
+                    forces.get(node.id).y += fy;
+                }
+            }
+            
+            // Apply forces with damping
+            for (const node of allNodes) {
+                const vel = velocities.get(node.id);
+                const force = forces.get(node.id);
+                
+                vel.x = (vel.x + force.x) * DAMPING;
+                vel.y = (vel.y + force.y) * DAMPING;
+                
+                // Limit max velocity
+                const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y);
+                if (speed > 50) {
+                    vel.x = (vel.x / speed) * 50;
+                    vel.y = (vel.y / speed) * 50;
+                }
+                
+                node.position.x += vel.x;
+                node.position.y += vel.y;
+            }
+        }
+        
+        // Normalize positions to start from (100, 100)
+        let minX = Infinity, minY = Infinity;
+        for (const node of allNodes) {
+            minX = Math.min(minX, node.position.x);
+            minY = Math.min(minY, node.position.y);
+        }
+        for (const node of allNodes) {
+            node.position.x = node.position.x - minX + 100;
+            node.position.y = node.position.y - minY + 100;
+        }
+        
+        // Final pass: resolve any remaining overlaps
+        this.resolveOverlaps(allNodes, dimensions);
+    }
+    
+    /**
+     * Resolve any overlapping nodes by nudging them apart.
+     * @param {Array} nodes - Array of nodes to check
+     * @param {Map} dimensions - Map of nodeId -> { width, height }
+     */
+    resolveOverlaps(nodes, dimensions = new Map()) {
+        const DEFAULT_WIDTH = 360;
+        const DEFAULT_HEIGHT = 220;
+        const PADDING = 40;
+        const MAX_ITERATIONS = 50;
+        
+        const getNodeSize = (node) => {
+            const dim = dimensions.get(node.id);
+            if (dim) {
+                return { width: dim.width, height: dim.height };
+            }
+            return { 
+                width: node.width || DEFAULT_WIDTH, 
+                height: node.height || DEFAULT_HEIGHT 
+            };
+        };
+        
+        const checkOverlap = (nodeA, nodeB) => {
+            const sizeA = getNodeSize(nodeA);
+            const sizeB = getNodeSize(nodeB);
+            
+            const aLeft = nodeA.position.x;
+            const aRight = nodeA.position.x + sizeA.width + PADDING;
+            const aTop = nodeA.position.y;
+            const aBottom = nodeA.position.y + sizeA.height + PADDING;
+            
+            const bLeft = nodeB.position.x;
+            const bRight = nodeB.position.x + sizeB.width + PADDING;
+            const bTop = nodeB.position.y;
+            const bBottom = nodeB.position.y + sizeB.height + PADDING;
+            
+            return !(aRight < bLeft || aLeft > bRight || aBottom < bTop || aTop > bBottom);
+        };
+        
+        for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
+            let hasOverlap = false;
+            
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                    const nodeA = nodes[i];
+                    const nodeB = nodes[j];
+                    
+                    if (checkOverlap(nodeA, nodeB)) {
+                        hasOverlap = true;
+                        
+                        const sizeA = getNodeSize(nodeA);
+                        const sizeB = getNodeSize(nodeB);
+                        
+                        // Calculate centers
+                        const centerAx = nodeA.position.x + sizeA.width / 2;
+                        const centerAy = nodeA.position.y + sizeA.height / 2;
+                        const centerBx = nodeB.position.x + sizeB.width / 2;
+                        const centerBy = nodeB.position.y + sizeB.height / 2;
+                        
+                        // Direction to push apart
+                        let dx = centerBx - centerAx;
+                        let dy = centerBy - centerAy;
+                        const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+                        
+                        // Normalize
+                        dx /= distance;
+                        dy /= distance;
+                        
+                        // Push apart by a small amount
+                        const pushAmount = 20;
+                        nodeA.position.x -= dx * pushAmount;
+                        nodeA.position.y -= dy * pushAmount;
+                        nodeB.position.x += dx * pushAmount;
+                        nodeB.position.y += dy * pushAmount;
+                    }
+                }
+            }
+            
+            if (!hasOverlap) break;
+        }
+        
+        // Ensure all nodes stay in positive coordinates
+        let minX = Infinity, minY = Infinity;
+        for (const node of nodes) {
+            minX = Math.min(minX, node.position.x);
+            minY = Math.min(minY, node.position.y);
+        }
+        if (minX < 100 || minY < 100) {
+            const offsetX = minX < 100 ? 100 - minX : 0;
+            const offsetY = minY < 100 ? 100 - minY : 0;
+            for (const node of nodes) {
+                node.position.x += offsetX;
+                node.position.y += offsetY;
+            }
+        }
     }
 
     /**

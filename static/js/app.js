@@ -1025,8 +1025,16 @@ class App {
         // Get actual node dimensions from the canvas before layout
         const dimensions = this.canvas.getNodeDimensions();
         
-        // Run auto-layout algorithm with actual dimensions
-        this.graph.autoLayout(dimensions);
+        // Get selected layout algorithm
+        const layoutPicker = document.getElementById('layout-picker');
+        const algorithm = layoutPicker ? layoutPicker.value : 'hierarchical';
+        
+        // Run selected layout algorithm
+        if (algorithm === 'force') {
+            this.graph.forceDirectedLayout(dimensions);
+        } else {
+            this.graph.autoLayout(dimensions);
+        }
         
         // Re-render the entire graph with new positions
         this.canvas.renderGraph(this.graph);

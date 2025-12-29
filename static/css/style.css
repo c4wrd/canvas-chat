@@ -212,6 +212,33 @@ html, body {
     box-shadow: 0 0 0 2px var(--selection-bg);
 }
 
+/* Layout Controls */
+.layout-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.layout-picker {
+    padding: 6px 8px;
+    border: 1px solid var(--bg-secondary);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+    outline: none;
+}
+
+.layout-picker:hover {
+    border-color: var(--accent);
+}
+
+.layout-picker:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--selection-bg);
+}
+
 /* Icon Buttons */
 .icon-btn {
     width: 32px;
