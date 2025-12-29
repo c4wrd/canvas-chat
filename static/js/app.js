@@ -35,6 +35,7 @@ class App {
         this.canvas.onNodeBranch = this.handleNodeBranch.bind(this);
         this.canvas.onNodeSummarize = this.handleNodeSummarize.bind(this);
         this.canvas.onNodeDelete = this.handleNodeDelete.bind(this);
+        this.canvas.onNodeTitleEdit = this.handleNodeTitleEdit.bind(this);
         
         // Matrix-specific callbacks
         this.canvas.onMatrixCellFill = this.handleMatrixCellFill.bind(this);
@@ -104,6 +105,9 @@ class App {
         if (!this.graph.isEmpty()) {
             setTimeout(() => this.canvas.fitToContent(), 100);
         }
+        
+        // Generate summaries for existing nodes that don't have them (lazy/background)
+        this.generateMissingSummaries();
     }
 
     createNewSession() {
@@ -381,6 +385,9 @@ class App {
                 this.canvas.updateNodeContent(aiNode.id, fullContent, false);
                 this.graph.updateNode(aiNode.id, { content: fullContent });
                 this.saveSession();
+                
+                // Generate summary async (don't await - let it happen in background)
+                this.generateNodeSummary(aiNode.id);
             },
             // onError
             (err) => {
@@ -606,6 +613,9 @@ class App {
                             }
                             this.canvas.updateNodeContent(researchNode.id, reportContent, false);
                             this.graph.updateNode(researchNode.id, { content: reportContent });
+                            
+                            // Generate summary async (don't await)
+                            this.generateNodeSummary(researchNode.id);
                         } else if (eventType === 'error') {
                             throw new Error(data);
                         }
@@ -1224,6 +1234,31 @@ class App {
         this.updateEmptyState();
     }
 
+    handleNodeTitleEdit(nodeId) {
+        const node = this.graph.getNode(nodeId);
+        if (!node) return;
+        
+        const currentTitle = node.title || node.summary || '';
+        const newTitle = prompt('Edit node title:', currentTitle);
+        
+        if (newTitle !== null) {
+            // Update the node title (empty string clears it, using summary/truncation as fallback)
+            const title = newTitle.trim() || null;
+            this.graph.updateNode(nodeId, { title });
+            
+            // Update the DOM
+            const wrapper = this.canvas.nodeElements.get(nodeId);
+            if (wrapper) {
+                const summaryText = wrapper.querySelector('.summary-text');
+                if (summaryText) {
+                    summaryText.textContent = title || node.summary || this.canvas.truncate((node.content || '').replace(/[#*_`>\[\]()!]/g, ''), 60);
+                }
+            }
+            
+            this.saveSession();
+        }
+    }
+
     deleteSelectedNodes() {
         const selectedIds = this.canvas.getSelectedNodeIds();
         if (selectedIds.length === 0) return;
@@ -1410,6 +1445,79 @@ class App {
             // Restore button
             btn.textContent = originalContent;
             btn.disabled = false;
+        }
+    }
+
+    /**
+     * Generate a summary for a node (for semantic zoom)
+     * Called async after AI/Research nodes complete
+     */
+    async generateNodeSummary(nodeId) {
+        const node = this.graph.getNode(nodeId);
+        if (!node || !node.content || node.summary) return;
+        
+        // Only generate for AI and Research nodes
+        if (node.type !== NodeType.AI && node.type !== NodeType.RESEARCH) return;
+        
+        try {
+            const model = this.modelPicker.value;
+            const apiKey = chat.getApiKeyForModel(model);
+            const baseUrl = chat.getBaseUrl();
+            
+            const requestBody = {
+                content: node.content,
+                model,
+                api_key: apiKey
+            };
+            
+            if (baseUrl) {
+                requestBody.base_url = baseUrl;
+            }
+            
+            const response = await fetch('/api/generate-summary', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            });
+            
+            if (!response.ok) {
+                console.warn(`Failed to generate summary for node ${nodeId}`);
+                return;
+            }
+            
+            const data = await response.json();
+            
+            // Update node with summary
+            this.graph.updateNode(nodeId, { summary: data.summary });
+            
+            // Update the node's summary text in the DOM if it exists
+            const wrapper = this.canvas.nodeElements.get(nodeId);
+            if (wrapper) {
+                const summaryText = wrapper.querySelector('.summary-text');
+                if (summaryText) {
+                    summaryText.textContent = data.summary;
+                }
+            }
+            
+            this.saveSession();
+            
+        } catch (err) {
+            console.warn('Failed to generate node summary:', err);
+            // Fail silently - truncation fallback will be used
+        }
+    }
+
+    /**
+     * Generate summaries for existing AI/Research nodes that don't have them
+     * Called after loading a session to lazily populate missing summaries
+     */
+    generateMissingSummaries() {
+        const nodes = this.graph.getAllNodes();
+        for (const node of nodes) {
+            if ((node.type === NodeType.AI || node.type === NodeType.RESEARCH) && !node.summary) {
+                // Don't await - let them run in parallel/background
+                this.generateNodeSummary(node.id);
+            }
         }
     }
 

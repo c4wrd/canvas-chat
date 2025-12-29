@@ -530,6 +530,15 @@ class GenerateTitleRequest(BaseModel):
     base_url: Optional[str] = None
 
 
+class GenerateSummaryRequest(BaseModel):
+    """Request body for generating a node summary for semantic zoom."""
+
+    content: str  # Node content to summarize
+    model: str = "openai/gpt-4o-mini"
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+
+
 @app.post("/api/parse-list")
 async def parse_list(request: ParseListRequest):
     """
@@ -815,6 +824,69 @@ Examples of good titles:
 
     except Exception as e:
         logger.error(f"Generate title failed: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/generate-summary")
+async def generate_summary(request: GenerateSummaryRequest):
+    """
+    Generate a short summary of node content for semantic zoom.
+
+    Returns a concise 5-10 word summary suitable for display when zoomed out.
+    """
+    logger.info(f"Generate summary request: content length={len(request.content)}")
+
+    provider = extract_provider(request.model)
+
+    system_prompt = """Generate a very short summary (5-10 words) for the following content.
+
+Rules:
+- Return ONLY the summary text, no quotes or formatting
+- Be concise and descriptive
+- Capture the main topic or key point
+- Use sentence case
+- Do not start with "This is about" or similar phrases
+
+Examples:
+- "Python decorator patterns for caching"
+- "Marketing budget allocation for Q2"
+- "Debugging React state management issues"
+- "Benefits of microservices architecture"
+"""
+
+    try:
+        kwargs = {
+            "model": request.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": f"Summarize this content:\n\n{request.content[:2000]}",  # Limit content length
+                },
+            ],
+            "temperature": 0.5,
+            "max_tokens": 30,
+        }
+
+        api_key = get_api_key_for_provider(provider, request.api_key)
+        if api_key:
+            kwargs["api_key"] = api_key
+
+        if request.base_url:
+            kwargs["base_url"] = request.base_url
+
+        response = await litellm.acompletion(**kwargs)
+        summary = response.choices[0].message.content.strip()
+
+        # Clean up any quotes or extra formatting
+        summary = summary.strip("\"'")
+
+        logger.info(f"Generated summary: {summary}")
+        return {"summary": summary}
+
+    except Exception as e:
+        logger.error(f"Generate summary failed: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -39,6 +39,7 @@ class Canvas {
         this.onNodeBranch = null;
         this.onNodeSummarize = null;
         this.onNodeDelete = null;
+        this.onNodeTitleEdit = null;  // For editing node title in semantic zoom
         
         this.init();
     }
@@ -99,6 +100,17 @@ class Canvas {
         this.svg.setAttribute('viewBox', 
             `${this.viewBox.x} ${this.viewBox.y} ${this.viewBox.width} ${this.viewBox.height}`
         );
+        
+        // Update zoom level class for semantic zoom
+        this.container.classList.remove('zoom-full', 'zoom-summary', 'zoom-mini');
+        
+        if (this.scale > 0.6) {
+            this.container.classList.add('zoom-full');
+        } else if (this.scale > 0.35) {
+            this.container.classList.add('zoom-summary');
+        } else {
+            this.container.classList.add('zoom-mini');
+        }
     }
 
     handleMouseDown(e) {
@@ -453,8 +465,16 @@ class Canvas {
             // Render tags if present
             const tagsHtml = this.renderNodeTags(node);
             
+            // Get summary text for semantic zoom
+            const summaryText = this.getNodeSummaryText(node);
+            const typeIcon = this.getNodeTypeIcon(node.type);
+            
             div.innerHTML = `
                 ${tagsHtml}
+                <div class="node-summary" title="Double-click to edit title">
+                    <span class="node-type-icon">${typeIcon}</span>
+                    <span class="summary-text">${this.escapeHtml(summaryText)}</span>
+                </div>
                 <div class="node-header">
                     <div class="drag-handle" title="Drag to move">
                         <span class="grip-dot"></span><span class="grip-dot"></span>
@@ -700,6 +720,17 @@ class Canvas {
                     }
                 });
             }
+        }
+        
+        // Double-click on summary to edit title
+        const nodeSummary = div.querySelector('.node-summary');
+        if (nodeSummary) {
+            nodeSummary.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                if (this.onNodeTitleEdit) {
+                    this.onNodeTitleEdit(node.id);
+                }
+            });
         }
     }
 
@@ -1008,6 +1039,31 @@ class Canvas {
             [NodeType.CELL]: 'Cell'
         };
         return labels[type] || type;
+    }
+
+    getNodeTypeIcon(type) {
+        const icons = {
+            [NodeType.HUMAN]: '💬',
+            [NodeType.AI]: '🤖',
+            [NodeType.NOTE]: '📝',
+            [NodeType.SUMMARY]: '📋',
+            [NodeType.REFERENCE]: '🔗',
+            [NodeType.SEARCH]: '🔍',
+            [NodeType.RESEARCH]: '📚',
+            [NodeType.HIGHLIGHT]: '✨',
+            [NodeType.MATRIX]: '📊',
+            [NodeType.CELL]: '📦'
+        };
+        return icons[type] || '📄';
+    }
+
+    getNodeSummaryText(node) {
+        // Priority: user-set title > LLM summary > truncated content
+        if (node.title) return node.title;
+        if (node.summary) return node.summary;
+        // For content fallback, strip markdown and truncate
+        const plainText = (node.content || '').replace(/[#*_`>\[\]()!]/g, '').trim();
+        return this.truncate(plainText, 60);
     }
 
     escapeHtml(text) {

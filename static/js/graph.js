@@ -58,6 +58,8 @@ function createNode(type, content, options = {}) {
         model: options.model || null,
         selection: options.selection || null, // For branch-from-selection
         tags: options.tags || [],  // Array of color keys
+        title: options.title || null,  // User-editable short title (overrides summary)
+        summary: options.summary || null,  // Auto-generated summary for semantic zoom
         ...options
     };
 }
