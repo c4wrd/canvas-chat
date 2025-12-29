@@ -278,11 +278,13 @@ class App {
         }
         
         // Check for /matrix command
-        if (content === '/matrix' || content.startsWith('/matrix ')) {
-            const matrixContext = content.slice(7).trim() || 'Evaluate items';
-            this.chatInput.value = '';
-            this.chatInput.style.height = 'auto';
-            await this.handleMatrix(matrixContext);
+        if (content.startsWith('/matrix ')) {
+            const matrixContext = content.slice(8).trim();
+            if (matrixContext) {
+                this.chatInput.value = '';
+                this.chatInput.style.height = 'auto';
+                await this.handleMatrix(matrixContext);
+            }
             return;
         }
         
