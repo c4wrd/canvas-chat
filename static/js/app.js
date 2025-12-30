@@ -1334,7 +1334,7 @@ class App {
         this.chatInput.focus();
     }
 
-    handleNodeBranch(nodeId, selectedText) {
+    async handleNodeBranch(nodeId, selectedText, replyText) {
         // If text was selected, create a highlight node with that excerpt
         if (selectedText) {
             const sourceNode = this.graph.getNode(nodeId);
@@ -1360,15 +1360,79 @@ class App {
             this.graph.addEdge(edge);
             this.canvas.renderEdge(edge, sourceNode.position, highlightNode.position);
             
-            // Select the new highlight node for easy follow-up
-            this.canvas.clearSelection();
-            this.canvas.selectNode(highlightNode.id);
-            
             this.saveSession();
             this.updateEmptyState();
             
-            // Focus input for follow-up conversation
-            this.chatInput.focus();
+            // If user provided a reply, create the conversation chain
+            if (replyText && replyText.trim()) {
+                // Create user node as reply to highlight
+                const humanNode = createNode(NodeType.HUMAN, replyText.trim(), {
+                    position: this.graph.autoPosition([highlightNode.id])
+                });
+                
+                this.graph.addNode(humanNode);
+                this.canvas.renderNode(humanNode);
+                
+                // Edge from highlight to user message
+                const humanEdge = createEdge(highlightNode.id, humanNode.id, EdgeType.REPLY);
+                this.graph.addEdge(humanEdge);
+                this.canvas.renderEdge(humanEdge, highlightNode.position, humanNode.position);
+                
+                this.saveSession();
+                
+                // Create AI response node
+                const model = this.modelPicker.value;
+                const aiNode = createNode(NodeType.AI, '', {
+                    position: this.graph.autoPosition([humanNode.id]),
+                    model: model.split('/').pop()
+                });
+                
+                this.graph.addNode(aiNode);
+                this.canvas.renderNode(aiNode);
+                
+                const aiEdge = createEdge(humanNode.id, aiNode.id, EdgeType.REPLY);
+                this.graph.addEdge(aiEdge);
+                this.canvas.renderEdge(aiEdge, humanNode.position, aiNode.position);
+                
+                // Center on the AI node
+                this.canvas.centerOn(
+                    aiNode.position.x + 160,
+                    aiNode.position.y + 100
+                );
+                
+                // Build context and stream LLM response
+                const context = this.graph.resolveContext([humanNode.id]);
+                const messages = context.map(m => ({ role: m.role, content: m.content }));
+                
+                await chat.sendMessage(
+                    messages,
+                    model,
+                    // onChunk
+                    (chunk, fullContent) => {
+                        this.canvas.updateNodeContent(aiNode.id, fullContent, true);
+                        this.graph.updateNode(aiNode.id, { content: fullContent });
+                    },
+                    // onDone
+                    (fullContent) => {
+                        this.canvas.updateNodeContent(aiNode.id, fullContent, false);
+                        this.graph.updateNode(aiNode.id, { content: fullContent });
+                        this.saveSession();
+                        this.generateNodeSummary(aiNode.id);
+                    },
+                    // onError
+                    (err) => {
+                        const errorMsg = `Error: ${err.message}`;
+                        this.canvas.updateNodeContent(aiNode.id, errorMsg, false);
+                        this.graph.updateNode(aiNode.id, { content: errorMsg });
+                        this.saveSession();
+                    }
+                );
+            } else {
+                // No reply text - just select highlight node for follow-up
+                this.canvas.clearSelection();
+                this.canvas.selectNode(highlightNode.id);
+                this.chatInput.focus();
+            }
         } else {
             // No selection - just select the node for reply
             this.canvas.clearSelection();

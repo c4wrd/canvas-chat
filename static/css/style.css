@@ -580,15 +580,17 @@ html, body {
     pointer-events: none;
 }
 
-/* Branch Tooltip - floating tooltip on text selection */
-.branch-tooltip {
+/* Reply Tooltip - floating tooltip with input on text selection */
+.reply-tooltip {
     position: fixed;
     z-index: 10000;
     background: var(--bg-primary);
     border: 1px solid var(--edge-color-light);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-lg);
-    padding: 4px;
+    padding: 8px;
+    min-width: 280px;
+    max-width: 400px;
     animation: tooltipFadeIn 0.15s ease-out;
 }
 
@@ -603,28 +605,70 @@ html, body {
     }
 }
 
-.branch-tooltip-btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 12px;
+.reply-tooltip-selection {
+    margin-bottom: 8px;
+    padding: 6px 8px;
     background: var(--node-highlight);
-    border: 1px solid var(--node-highlight-border);
+    border-left: 3px solid var(--node-highlight-border);
     border-radius: var(--radius-sm);
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-primary);
-    cursor: pointer;
-    transition: background 0.15s, transform 0.1s;
-    white-space: nowrap;
 }
 
-.branch-tooltip-btn:hover {
-    background: var(--node-highlight-border);
+.reply-tooltip-selection-text {
+    font-size: 12px;
+    font-style: italic;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    display: block;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.reply-tooltip-input-row {
+    display: flex;
+    gap: 6px;
+}
+
+.reply-tooltip-input {
+    flex: 1;
+    padding: 8px 10px;
+    border: 1px solid var(--bg-secondary);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.reply-tooltip-input:focus {
+    border-color: var(--accent);
+}
+
+.reply-tooltip-input::placeholder {
+    color: var(--text-muted);
+}
+
+.reply-tooltip-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent);
+    border: none;
+    border-radius: var(--radius-sm);
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+}
+
+.reply-tooltip-btn:hover {
+    background: var(--accent-hover);
     transform: scale(1.02);
 }
 
-.branch-tooltip-btn:active {
+.reply-tooltip-btn:active {
     transform: scale(0.98);
 }
 

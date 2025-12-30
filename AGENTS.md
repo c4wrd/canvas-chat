@@ -28,6 +28,15 @@ Do not mix documentation types. Each document should serve one purpose.
 - Prefer keyboard shortcuts for power users (document them in tooltips)
 - Animations should be subtle and purposeful (0.15s-0.3s transitions)
 
+### Text selection interactions
+
+When showing tooltips or popups near text selections, **never auto-focus input fields**.
+Focusing an input clears the browser's text selection. Instead:
+
+- Store the selected text immediately when the tooltip appears
+- Let the user click into input fields manually
+- Use the stored text when processing the action
+
 ## Testing
 
 Run the dev server with `pixi run dev` before testing UI changes.

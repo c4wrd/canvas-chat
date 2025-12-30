@@ -41,9 +41,10 @@ class Canvas {
         this.onNodeDelete = null;
         this.onNodeTitleEdit = null;  // For editing node title in semantic zoom
         
-        // Branch tooltip state
+        // Reply tooltip state
         this.branchTooltip = null;
         this.activeSelectionNodeId = null;
+        this.pendingSelectedText = null;  // Store selected text when tooltip opens
         
         this.init();
     }
@@ -56,45 +57,104 @@ class Canvas {
     }
     
     /**
-     * Create the floating branch tooltip element
+     * Create the floating reply tooltip element with input field
      */
     createBranchTooltip() {
         this.branchTooltip = document.createElement('div');
-        this.branchTooltip.className = 'branch-tooltip';
-        this.branchTooltip.innerHTML = '<button class="branch-tooltip-btn">🌿 Branch</button>';
+        this.branchTooltip.className = 'reply-tooltip';
+        this.branchTooltip.innerHTML = `
+            <div class="reply-tooltip-selection">
+                <span class="reply-tooltip-selection-text"></span>
+            </div>
+            <div class="reply-tooltip-input-row">
+                <input type="text" class="reply-tooltip-input" placeholder="Type your reply..." />
+                <button class="reply-tooltip-btn" title="Send (Enter)">→</button>
+            </div>
+        `;
         this.branchTooltip.style.display = 'none';
         document.body.appendChild(this.branchTooltip);
         
-        // Handle branch button click
-        this.branchTooltip.querySelector('.branch-tooltip-btn').addEventListener('click', (e) => {
+        const input = this.branchTooltip.querySelector('.reply-tooltip-input');
+        const btn = this.branchTooltip.querySelector('.reply-tooltip-btn');
+        
+        // Handle submit via button click
+        btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const selection = window.getSelection();
-            const selectedText = selection.toString().trim();
-            
-            if (selectedText && this.activeSelectionNodeId && this.onNodeBranch) {
-                this.onNodeBranch(this.activeSelectionNodeId, selectedText);
+            this.submitReplyTooltip();
+        });
+        
+        // Handle submit via Enter key
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this.submitReplyTooltip();
+            } else if (e.key === 'Escape') {
+                this.hideBranchTooltip();
             }
-            
-            this.hideBranchTooltip();
-            selection.removeAllRanges();
+        });
+        
+        // Prevent click inside tooltip from triggering outside click handler
+        this.branchTooltip.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
         });
     }
     
     /**
-     * Show the branch tooltip near the selection
+     * Submit the reply from the tooltip
+     */
+    submitReplyTooltip() {
+        const input = this.branchTooltip.querySelector('.reply-tooltip-input');
+        const replyText = input.value.trim();
+        const selectedText = this.pendingSelectedText;
+        
+        if (selectedText && this.activeSelectionNodeId && this.onNodeBranch) {
+            // Pass both the selected text and the user's reply
+            this.onNodeBranch(this.activeSelectionNodeId, selectedText, replyText);
+        }
+        
+        this.hideBranchTooltip();
+        window.getSelection().removeAllRanges();
+        input.value = '';
+    }
+    
+    /**
+     * Show the reply tooltip near the selection
+     * NOTE: Do NOT auto-focus the input - this would clear the text selection
      */
     showBranchTooltip(x, y) {
+        // Store the selected text before showing (selection may change later)
+        const selection = window.getSelection();
+        this.pendingSelectedText = selection.toString().trim();
+        
+        // Update the selection preview text
+        const selectionTextEl = this.branchTooltip.querySelector('.reply-tooltip-selection-text');
+        if (selectionTextEl) {
+            // Truncate if too long, but show full text on hover
+            const maxLength = 100;
+            const displayText = this.pendingSelectedText.length > maxLength 
+                ? this.pendingSelectedText.slice(0, maxLength) + '…'
+                : this.pendingSelectedText;
+            selectionTextEl.textContent = `"${displayText}"`;
+            selectionTextEl.title = this.pendingSelectedText; // Full text on hover
+        }
+        
         this.branchTooltip.style.display = 'block';
         this.branchTooltip.style.left = `${x}px`;
         this.branchTooltip.style.top = `${y}px`;
     }
     
     /**
-     * Hide the branch tooltip
+     * Hide the reply tooltip
      */
     hideBranchTooltip() {
         this.branchTooltip.style.display = 'none';
         this.activeSelectionNodeId = null;
+        this.pendingSelectedText = null;
+        // Clear the input and selection preview
+        const input = this.branchTooltip.querySelector('.reply-tooltip-input');
+        if (input) input.value = '';
+        const selectionTextEl = this.branchTooltip.querySelector('.reply-tooltip-selection-text');
+        if (selectionTextEl) selectionTextEl.textContent = '';
     }
     
     /**
@@ -133,11 +193,11 @@ class Canvas {
         // Double-click to fit
         this.container.addEventListener('dblclick', this.handleDoubleClick.bind(this));
         
-        // Text selection handling for branch tooltip
+        // Text selection handling for reply tooltip
         document.addEventListener('selectionchange', this.handleSelectionChange.bind(this));
         document.addEventListener('mousedown', (e) => {
             // Hide tooltip when clicking outside of it
-            if (!e.target.closest('.branch-tooltip')) {
+            if (!e.target.closest('.reply-tooltip')) {
                 this.hideBranchTooltip();
             }
         });
@@ -159,16 +219,24 @@ class Canvas {
      * Handle text selection changes to show/hide branch tooltip
      */
     handleSelectionChange() {
+        // If user is interacting with the tooltip (e.g., typing in input), don't update
+        if (this.branchTooltip && this.branchTooltip.contains(document.activeElement)) {
+            return;
+        }
+        
         const selection = window.getSelection();
         const selectedText = selection.toString().trim();
         
         if (!selectedText) {
-            // No selection, hide tooltip after a brief delay (allows click on tooltip)
-            setTimeout(() => {
-                if (!window.getSelection().toString().trim()) {
-                    this.hideBranchTooltip();
+            // No selection - but only hide if user isn't focused on tooltip
+            if (!this.branchTooltip.contains(document.activeElement)) {
+                // Check if tooltip is visible and we have pending text (user clicked into input)
+                if (this.pendingSelectedText && this.branchTooltip.style.display !== 'none') {
+                    // Keep tooltip open - user is working with it
+                    return;
                 }
-            }, 100);
+                this.hideBranchTooltip();
+            }
             return;
         }
         
@@ -193,8 +261,8 @@ class Canvas {
         const rect = range.getBoundingClientRect();
         
         // Position above and centered on the selection
-        const tooltipX = rect.left + rect.width / 2 - 40; // Roughly center the tooltip
-        const tooltipY = rect.top - 40; // Above the selection
+        const tooltipX = rect.left + rect.width / 2 - 140; // Center the tooltip (tooltip is ~280px wide)
+        const tooltipY = rect.top - 100; // Above the selection (tooltip is ~90px tall now with preview)
         
         this.showBranchTooltip(tooltipX, tooltipY);
     }
