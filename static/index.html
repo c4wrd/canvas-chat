@@ -37,6 +37,7 @@
                 <button id="auto-layout-btn" class="icon-btn" title="Apply Layout">🔀</button>
             </div>
             <button id="tags-btn" class="icon-btn" title="Tags">🏷️</button>
+            <button id="search-btn" class="icon-btn" title="Search nodes (Cmd/Ctrl+K)">🔍</button>
             <button id="new-canvas-btn" class="icon-btn" title="New Canvas">📄</button>
             <button id="sessions-btn" class="icon-btn" title="Sessions">📚</button>
             <button id="settings-btn" class="icon-btn" title="Settings">⚙️</button>
@@ -279,8 +280,29 @@
         </div>
     </div>
 
+    <!-- Search Overlay -->
+    <div id="search-overlay" class="search-overlay" style="display: none;">
+        <div class="search-container">
+            <div class="search-input-wrapper">
+                <span class="search-icon">🔍</span>
+                <input 
+                    type="text" 
+                    id="search-input" 
+                    class="search-input"
+                    placeholder="Search nodes..."
+                    autocomplete="off"
+                >
+                <kbd class="search-hint">esc</kbd>
+            </div>
+            <div id="search-results" class="search-results">
+                <div class="search-empty">Type to search through your nodes</div>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="/static/js/sse.js"></script>
+    <script src="/static/js/search.js"></script>
     <script src="/static/js/storage.js"></script>
     <script src="/static/js/graph.js"></script>
     <script src="/static/js/canvas.js"></script>

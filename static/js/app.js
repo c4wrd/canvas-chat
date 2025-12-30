@@ -8,6 +8,8 @@ class App {
         this.graph = null;
         this.session = null;
         this.saveTimeout = null;
+        this.searchIndex = new SearchIndex();
+        this.searchSelectedIndex = 0;
         
         // UI elements
         this.chatInput = document.getElementById('chat-input');
@@ -96,6 +98,9 @@ class App {
         
         // Render graph
         this.canvas.renderGraph(this.graph);
+        
+        // Rebuild search index
+        this.rebuildSearchIndex();
         
         // Update UI
         this.sessionName.textContent = session.name || 'Untitled Session';
@@ -268,9 +273,20 @@ class App {
         
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
-            // Escape to clear selection
+            // Cmd/Ctrl+K to open search
+            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                e.preventDefault();
+                this.openSearch();
+                return;
+            }
+            
+            // Escape to close search or clear selection
             if (e.key === 'Escape') {
-                this.canvas.clearSelection();
+                if (this.isSearchOpen()) {
+                    this.closeSearch();
+                } else {
+                    this.canvas.clearSelection();
+                }
             }
             
             // Delete to remove selected nodes
@@ -278,6 +294,27 @@ class App {
                 !e.target.matches('input, textarea')) {
                 this.deleteSelectedNodes();
             }
+        });
+        
+        // Search button
+        document.getElementById('search-btn').addEventListener('click', () => {
+            this.openSearch();
+        });
+        
+        // Search overlay
+        document.getElementById('search-overlay').addEventListener('click', (e) => {
+            if (e.target.id === 'search-overlay') {
+                this.closeSearch();
+            }
+        });
+        
+        // Search input
+        const searchInput = document.getElementById('search-input');
+        searchInput.addEventListener('input', () => {
+            this.handleSearchInput();
+        });
+        searchInput.addEventListener('keydown', (e) => {
+            this.handleSearchKeydown(e);
         });
     }
 
@@ -1888,6 +1925,204 @@ class App {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+    
+    // --- Search Methods ---
+    
+    /**
+     * Rebuild the search index from current graph nodes
+     */
+    rebuildSearchIndex() {
+        const nodes = this.graph.getAllNodes();
+        this.searchIndex.buildFromNodes(nodes);
+    }
+    
+    /**
+     * Check if search overlay is open
+     */
+    isSearchOpen() {
+        return document.getElementById('search-overlay').style.display !== 'none';
+    }
+    
+    /**
+     * Open the search overlay
+     */
+    openSearch() {
+        // Rebuild index to ensure it's fresh
+        this.rebuildSearchIndex();
+        
+        const overlay = document.getElementById('search-overlay');
+        const input = document.getElementById('search-input');
+        const results = document.getElementById('search-results');
+        
+        overlay.style.display = 'flex';
+        input.value = '';
+        this.searchSelectedIndex = 0;
+        
+        // Show empty state
+        results.innerHTML = '<div class="search-empty">Type to search through your nodes</div>';
+        
+        // Focus input
+        setTimeout(() => input.focus(), 50);
+    }
+    
+    /**
+     * Close the search overlay
+     */
+    closeSearch() {
+        const overlay = document.getElementById('search-overlay');
+        const input = document.getElementById('search-input');
+        
+        overlay.style.display = 'none';
+        input.value = '';
+        this.searchSelectedIndex = 0;
+    }
+    
+    /**
+     * Handle search input changes
+     */
+    handleSearchInput() {
+        const input = document.getElementById('search-input');
+        const query = input.value.trim();
+        
+        if (!query) {
+            this.renderSearchResults([]);
+            return;
+        }
+        
+        const results = this.searchIndex.search(query, 15);
+        this.searchSelectedIndex = 0;
+        this.renderSearchResults(results, query);
+    }
+    
+    /**
+     * Handle keyboard navigation in search results
+     */
+    handleSearchKeydown(e) {
+        const results = document.querySelectorAll('.search-result');
+        
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            this.searchSelectedIndex = Math.min(this.searchSelectedIndex + 1, results.length - 1);
+            this.updateSearchSelection();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            this.searchSelectedIndex = Math.max(this.searchSelectedIndex - 1, 0);
+            this.updateSearchSelection();
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            const selected = results[this.searchSelectedIndex];
+            if (selected) {
+                const nodeId = selected.dataset.nodeId;
+                this.navigateToNode(nodeId);
+                this.closeSearch();
+            }
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            this.closeSearch();
+        }
+    }
+    
+    /**
+     * Update visual selection in search results
+     */
+    updateSearchSelection() {
+        const results = document.querySelectorAll('.search-result');
+        results.forEach((el, idx) => {
+            el.classList.toggle('selected', idx === this.searchSelectedIndex);
+        });
+        
+        // Scroll selected into view
+        const selected = results[this.searchSelectedIndex];
+        if (selected) {
+            selected.scrollIntoView({ block: 'nearest' });
+        }
+    }
+    
+    /**
+     * Render search results
+     */
+    renderSearchResults(results, query = '') {
+        const container = document.getElementById('search-results');
+        
+        if (!query) {
+            container.innerHTML = '<div class="search-empty">Type to search through your nodes</div>';
+            return;
+        }
+        
+        if (results.length === 0) {
+            container.innerHTML = '<div class="search-no-results">No results found</div>';
+            return;
+        }
+        
+        // Escape HTML in query for highlighting
+        const queryTokens = query.toLowerCase().split(/\s+/).filter(t => t.length > 0);
+        
+        const html = results.map((result, idx) => {
+            const icon = getNodeTypeIcon(result.type);
+            const typeName = result.type.charAt(0).toUpperCase() + result.type.slice(1);
+            
+            // Highlight matching terms in snippet
+            let snippet = this.escapeHtml(result.snippet);
+            for (const token of queryTokens) {
+                const regex = new RegExp(`(${this.escapeRegex(token)})`, 'gi');
+                snippet = snippet.replace(regex, '<mark>$1</mark>');
+            }
+            
+            return `
+                <div class="search-result${idx === 0 ? ' selected' : ''}" data-node-id="${result.nodeId}">
+                    <span class="search-result-icon">${icon}</span>
+                    <div class="search-result-content">
+                        <div class="search-result-type">${typeName}</div>
+                        <div class="search-result-snippet">${snippet}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        container.innerHTML = html + `
+            <div class="search-result-nav-hint">
+                <span><kbd>↑</kbd><kbd>↓</kbd> to navigate</span>
+                <span><kbd>Enter</kbd> to select</span>
+                <span><kbd>Esc</kbd> to close</span>
+            </div>
+        `;
+        
+        // Add click handlers
+        container.querySelectorAll('.search-result').forEach((el, idx) => {
+            el.addEventListener('click', () => {
+                const nodeId = el.dataset.nodeId;
+                this.navigateToNode(nodeId);
+                this.closeSearch();
+            });
+            
+            el.addEventListener('mouseenter', () => {
+                this.searchSelectedIndex = idx;
+                this.updateSearchSelection();
+            });
+        });
+    }
+    
+    /**
+     * Navigate to a node and select it
+     */
+    navigateToNode(nodeId) {
+        const node = this.graph.getNode(nodeId);
+        if (!node) return;
+        
+        // Clear current selection and select the target node
+        this.canvas.clearSelection();
+        this.canvas.selectNode(nodeId);
+        
+        // Pan to center the node in view
+        this.canvas.panToNode(nodeId);
+    }
+    
+    /**
+     * Escape special regex characters
+     */
+    escapeRegex(str) {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 }
 

@@ -537,6 +537,25 @@ class Canvas {
         this.viewBox.y = y - (rect.height / this.scale) / 2;
         this.updateViewBox();
     }
+    
+    /**
+     * Pan to center a specific node in the viewport
+     */
+    panToNode(nodeId) {
+        const wrapper = this.nodeElements.get(nodeId);
+        if (!wrapper) return;
+        
+        const x = parseFloat(wrapper.getAttribute('x'));
+        const y = parseFloat(wrapper.getAttribute('y'));
+        const width = parseFloat(wrapper.getAttribute('width')) || 320;
+        const height = parseFloat(wrapper.getAttribute('height')) || 200;
+        
+        // Center on the node's center point
+        const centerX = x + width / 2;
+        const centerY = y + height / 2;
+        
+        this.centerOn(centerX, centerY);
+    }
 
     // --- Node Rendering ---
 
