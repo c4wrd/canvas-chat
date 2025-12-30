@@ -1476,15 +1476,43 @@ kbd {
 }
 
 .matrix-context {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding: 8px 12px;
     font-size: 13px;
     font-style: italic;
     color: var(--text-secondary);
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--edge-color-light);
+}
+
+.matrix-context-text {
+    flex: 1;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.matrix-context-copy {
+    flex-shrink: 0;
+    padding: 2px 6px;
+    font-size: 12px;
+    font-style: normal;
+    background: var(--bg-primary);
+    border: 1px solid var(--edge-color-light);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.matrix-context:hover .matrix-context-copy {
+    opacity: 1;
+}
+
+.matrix-context-copy:hover {
+    background: var(--bg-canvas);
 }
 
 .matrix-table-container {

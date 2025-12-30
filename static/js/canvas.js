@@ -828,6 +828,24 @@ class Canvas {
                     }
                 });
             }
+            
+            // Copy context button
+            const copyContextBtn = div.querySelector('.matrix-context-copy');
+            if (copyContextBtn) {
+                copyContextBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    try {
+                        await navigator.clipboard.writeText(node.context);
+                        const originalText = copyContextBtn.textContent;
+                        copyContextBtn.textContent = '✓';
+                        setTimeout(() => {
+                            copyContextBtn.textContent = originalText;
+                        }, 1500);
+                    } catch (err) {
+                        console.error('Failed to copy:', err);
+                    }
+                });
+            }
         }
         
         // Double-click on summary to edit title
@@ -1400,7 +1418,10 @@ class Canvas {
                 <span class="node-type">Matrix</span>
                 <button class="node-action delete-btn" title="Delete node">🗑️</button>
             </div>
-            <div class="matrix-context">${this.escapeHtml(context)}</div>
+            <div class="matrix-context">
+                <span class="matrix-context-text">${this.escapeHtml(context)}</span>
+                <button class="matrix-context-copy" title="Copy context">📋</button>
+            </div>
             <div class="node-content matrix-table-container">
                 ${tableHtml}
             </div>
