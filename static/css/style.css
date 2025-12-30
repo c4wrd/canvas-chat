@@ -1424,12 +1424,28 @@ kbd {
 }
 
 .cell-detail-row label {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-size: 12px;
     font-weight: 600;
     color: var(--text-muted);
     margin-bottom: 4px;
     text-transform: uppercase;
+}
+
+.cell-copy-btn {
+    padding: 2px 6px;
+    font-size: 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--edge-color-light);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    text-transform: none;
+}
+
+.cell-copy-btn:hover {
+    background: var(--bg-canvas);
 }
 
 .cell-detail-content {
@@ -1454,9 +1470,21 @@ kbd {
 .node.matrix .node-content {
     padding: 0;
     overflow: hidden;
-    height: calc(100% - 95px); /* Fill available space minus header/summary/footer */
+    height: calc(100% - 125px); /* Fill available space minus header/summary/context/footer */
     display: flex;
     flex-direction: column;
+}
+
+.matrix-context {
+    padding: 8px 12px;
+    font-size: 13px;
+    font-style: italic;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--edge-color-light);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .matrix-table-container {

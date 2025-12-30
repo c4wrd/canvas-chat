@@ -1400,6 +1400,7 @@ class Canvas {
                 <span class="node-type">Matrix</span>
                 <button class="node-action delete-btn" title="Delete node">🗑️</button>
             </div>
+            <div class="matrix-context">${this.escapeHtml(context)}</div>
             <div class="node-content matrix-table-container">
                 ${tableHtml}
             </div>

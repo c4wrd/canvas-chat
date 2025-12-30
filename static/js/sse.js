@@ -10,7 +10,12 @@
 function normalizeText(text) {
     if (!text) return text;
     
-    return text
+    // Common short words that should NOT be merged with preceding text
+    const shortWords = new Set(['a', 'i', 'an', 'as', 'at', 'be', 'by', 'do', 'go', 'he', 'if', 'in', 'is', 'it', 'me', 'my', 'no', 'of', 'on', 'or', 'so', 'to', 'up', 'us', 'we', 'and', 'are', 'but', 'can', 'did', 'for', 'get', 'had', 'has', 'her', 'him', 'his', 'how', 'its', 'let', 'may', 'new', 'not', 'now', 'old', 'one', 'our', 'out', 'own', 'say', 'see', 'she', 'the', 'too', 'two', 'use', 'via', 'was', 'way', 'who', 'why', 'yet', 'you']);
+    
+    let result = text
+        // Fix hyphenated words split by spaces (e.g., "matter - of" -> "matter-of")
+        .replace(/ - /g, '-')
         // Remove spaces before punctuation
         .replace(/ +([.,!?;:)])/g, '$1')
         // Remove spaces after opening brackets/parens
@@ -21,6 +26,19 @@ function normalizeText(text) {
         .replace(/ +'/g, "'")
         // Trim leading/trailing whitespace
         .trim();
+    
+    // Fix tokenization splits: merge "word frag" patterns where frag is not a real word
+    // Pattern: lowercase letter, space, then 1-7 lowercase letters at word boundary
+    result = result.replace(/([a-z]) ([a-z]{1,7})(?=[\s.,!?;:\-—*_\[\]()]|$)/gi, (match, p1, p2) => {
+        // Keep the space if the second part is a common short word
+        if (shortWords.has(p2.toLowerCase())) {
+            return match;
+        }
+        // Merge if it looks like a tokenization split
+        return p1 + p2;
+    });
+    
+    return result;
 }
 
 /**

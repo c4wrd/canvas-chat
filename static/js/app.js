@@ -243,6 +243,20 @@ class App {
         document.getElementById('cell-pin-btn').addEventListener('click', () => {
             this.pinCellToCanvas();
         });
+        document.getElementById('cell-copy-btn').addEventListener('click', async () => {
+            const content = document.getElementById('cell-content').textContent;
+            const btn = document.getElementById('cell-copy-btn');
+            try {
+                await navigator.clipboard.writeText(content);
+                const originalText = btn.textContent;
+                btn.textContent = '✓';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 1500);
+            } catch (err) {
+                console.error('Failed to copy:', err);
+            }
+        });
         
         // Tag drawer
         document.getElementById('tags-btn').addEventListener('click', () => {
