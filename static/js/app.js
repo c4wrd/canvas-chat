@@ -1104,11 +1104,15 @@ class App {
             const sourceNode = this.graph.getNode(nodeId);
             if (!sourceNode) return;
             
-            // Create highlight node with the selected text
+            // Position the new node in the visible viewport area
+            // Get the center of the current viewport and offset slightly
+            const viewportCenter = this.canvas.getViewportCenter();
+            
+            // Create highlight node with the selected text, positioned in view
             const highlightNode = createNode(NodeType.HIGHLIGHT, `> ${selectedText}`, {
                 position: {
-                    x: sourceNode.position.x + 400,
-                    y: sourceNode.position.y
+                    x: viewportCenter.x + 50,  // Slight offset from center
+                    y: viewportCenter.y - 100  // Above center for visibility
                 }
             });
             

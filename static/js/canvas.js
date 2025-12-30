@@ -41,6 +41,10 @@ class Canvas {
         this.onNodeDelete = null;
         this.onNodeTitleEdit = null;  // For editing node title in semantic zoom
         
+        // Branch tooltip state
+        this.branchTooltip = null;
+        this.activeSelectionNodeId = null;
+        
         this.init();
     }
 
@@ -48,6 +52,59 @@ class Canvas {
         this.updateViewBox();
         this.setupEventListeners();
         this.handleResize();
+        this.createBranchTooltip();
+    }
+    
+    /**
+     * Create the floating branch tooltip element
+     */
+    createBranchTooltip() {
+        this.branchTooltip = document.createElement('div');
+        this.branchTooltip.className = 'branch-tooltip';
+        this.branchTooltip.innerHTML = '<button class="branch-tooltip-btn">🌿 Branch</button>';
+        this.branchTooltip.style.display = 'none';
+        document.body.appendChild(this.branchTooltip);
+        
+        // Handle branch button click
+        this.branchTooltip.querySelector('.branch-tooltip-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const selection = window.getSelection();
+            const selectedText = selection.toString().trim();
+            
+            if (selectedText && this.activeSelectionNodeId && this.onNodeBranch) {
+                this.onNodeBranch(this.activeSelectionNodeId, selectedText);
+            }
+            
+            this.hideBranchTooltip();
+            selection.removeAllRanges();
+        });
+    }
+    
+    /**
+     * Show the branch tooltip near the selection
+     */
+    showBranchTooltip(x, y) {
+        this.branchTooltip.style.display = 'block';
+        this.branchTooltip.style.left = `${x}px`;
+        this.branchTooltip.style.top = `${y}px`;
+    }
+    
+    /**
+     * Hide the branch tooltip
+     */
+    hideBranchTooltip() {
+        this.branchTooltip.style.display = 'none';
+        this.activeSelectionNodeId = null;
+    }
+    
+    /**
+     * Get the center of the visible viewport in SVG coordinates
+     */
+    getViewportCenter() {
+        return {
+            x: this.viewBox.x + this.viewBox.width / 2,
+            y: this.viewBox.y + this.viewBox.height / 2
+        };
     }
 
     setupEventListeners() {
@@ -76,6 +133,15 @@ class Canvas {
         // Double-click to fit
         this.container.addEventListener('dblclick', this.handleDoubleClick.bind(this));
         
+        // Text selection handling for branch tooltip
+        document.addEventListener('selectionchange', this.handleSelectionChange.bind(this));
+        document.addEventListener('mousedown', (e) => {
+            // Hide tooltip when clicking outside of it
+            if (!e.target.closest('.branch-tooltip')) {
+                this.hideBranchTooltip();
+            }
+        });
+        
         // Initialize touch state
         this.touchState = {
             touches: [],
@@ -87,6 +153,50 @@ class Canvas {
             startScale: 1,
             isGesturing: false
         };
+    }
+    
+    /**
+     * Handle text selection changes to show/hide branch tooltip
+     */
+    handleSelectionChange() {
+        const selection = window.getSelection();
+        const selectedText = selection.toString().trim();
+        
+        if (!selectedText) {
+            // No selection, hide tooltip after a brief delay (allows click on tooltip)
+            setTimeout(() => {
+                if (!window.getSelection().toString().trim()) {
+                    this.hideBranchTooltip();
+                }
+            }, 100);
+            return;
+        }
+        
+        // Check if selection is within a node's content
+        const anchorNode = selection.anchorNode;
+        if (!anchorNode) return;
+        
+        const nodeContent = anchorNode.parentElement?.closest('.node-content');
+        if (!nodeContent) return;
+        
+        const nodeWrapper = nodeContent.closest('.node-wrapper');
+        if (!nodeWrapper) return;
+        
+        // Get the node ID from the wrapper
+        const nodeId = nodeWrapper.getAttribute('data-node-id');
+        if (!nodeId) return;
+        
+        this.activeSelectionNodeId = nodeId;
+        
+        // Position tooltip above the selection
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        
+        // Position above and centered on the selection
+        const tooltipX = rect.left + rect.width / 2 - 40; // Roughly center the tooltip
+        const tooltipY = rect.top - 40; // Above the selection
+        
+        this.showBranchTooltip(tooltipX, tooltipY);
     }
 
     handleResize() {
@@ -488,7 +598,6 @@ class Canvas {
                 <div class="node-content">${this.renderMarkdown(node.content)}</div>
                 <div class="node-actions">
                     <button class="node-action reply-btn" title="Reply">↩️ Reply</button>
-                    ${node.type !== NodeType.NOTE ? '<button class="node-action branch-btn" title="Branch">🌿 Branch</button>' : ''}
                     ${node.type === NodeType.AI ? '<button class="node-action summarize-btn" title="Summarize">📝 Summarize</button>' : ''}
                     <button class="node-action copy-btn" title="Copy content">📋 Copy</button>
                 </div>
@@ -631,7 +740,6 @@ class Canvas {
         
         // Action buttons
         const replyBtn = div.querySelector('.reply-btn');
-        const branchBtn = div.querySelector('.branch-btn');
         const summarizeBtn = div.querySelector('.summarize-btn');
         const deleteBtn = div.querySelector('.delete-btn');
         
@@ -639,17 +747,6 @@ class Canvas {
             replyBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 if (this.onNodeReply) this.onNodeReply(node.id);
-            });
-        }
-        
-        if (branchBtn) {
-            branchBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const selection = window.getSelection();
-                const selectedText = selection.toString().trim();
-                if (this.onNodeBranch) {
-                    this.onNodeBranch(node.id, selectedText || null);
-                }
             });
         }
         

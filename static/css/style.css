@@ -528,6 +528,54 @@ html, body {
     pointer-events: none;
 }
 
+/* Branch Tooltip - floating tooltip on text selection */
+.branch-tooltip {
+    position: fixed;
+    z-index: 10000;
+    background: var(--bg-primary);
+    border: 1px solid var(--edge-color-light);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    padding: 4px;
+    animation: tooltipFadeIn 0.15s ease-out;
+}
+
+@keyframes tooltipFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.branch-tooltip-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: var(--node-highlight);
+    border: 1px solid var(--node-highlight-border);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+    white-space: nowrap;
+}
+
+.branch-tooltip-btn:hover {
+    background: var(--node-highlight-border);
+    transform: scale(1.02);
+}
+
+.branch-tooltip-btn:active {
+    transform: scale(0.98);
+}
+
 /* Node Header */
 .node-header {
     display: flex;
