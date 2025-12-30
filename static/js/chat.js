@@ -93,64 +93,24 @@ class Chat {
                 throw new Error(`HTTP error: ${response.status}`);
             }
 
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
             let fullContent = '';
-
-            while (true) {
-                const { done, value } = await reader.read();
-                
-                if (done) {
-                    break;
-                }
-
-                buffer += decoder.decode(value, { stream: true });
-                
-                // Normalize CRLF to LF before parsing (SSE uses CRLF per HTTP spec)
-                buffer = buffer.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-                
-                // Process SSE events
-                // SSE format: events are separated by double newlines
-                // Each event can have multiple "data:" lines (for content with newlines)
-                const events = buffer.split('\n\n');
-                buffer = events.pop() || ''; // Keep incomplete event in buffer
-
-                for (const event of events) {
-                    if (!event.trim()) continue;
-                    
-                    const lines = event.split('\n');
-                    let eventType = 'message';
-                    let dataLines = [];
-                    
-                    for (const line of lines) {
-                        if (line.startsWith('event: ')) {
-                            eventType = line.slice(7).trim();
-                        } else if (line.startsWith('data: ')) {
-                            dataLines.push(line.slice(6));
-                        } else if (line.startsWith('data:')) {
-                            // Handle "data:" with no space (empty line)
-                            dataLines.push(line.slice(5));
-                        }
-                    }
-                    
-                    // Join data lines with newlines (SSE spec)
-                    const data = dataLines.join('\n').replace(/\r$/gm, '');
-                    
-                    if (eventType === 'done') {
-                        // Stream complete
-                        break;
-                    } else if (eventType === 'error') {
-                        throw new Error(data || 'Unknown error');
-                    } else if (eventType === 'message' && data) {
+            
+            await SSE.readSSEStream(response, {
+                onEvent: (eventType, data) => {
+                    if (eventType === 'message' && data) {
                         fullContent += data;
                         onChunk(data, fullContent);
                     }
+                },
+                onDone: () => {
+                    this.isStreaming = false;
+                    onDone(SSE.normalizeText(fullContent));
+                },
+                onError: (err) => {
+                    this.isStreaming = false;
+                    throw err;
                 }
-            }
-
-            this.isStreaming = false;
-            onDone(fullContent);
+            });
 
         } catch (err) {
             this.isStreaming = false;

@@ -562,68 +562,48 @@ class App {
                 throw new Error(`Research failed: ${response.statusText}`);
             }
             
-            // Parse SSE stream
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
+            // Parse SSE stream using shared utility
             let reportContent = `**Research:** ${instructions}\n\n`;
             let sources = [];
             
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                
-                buffer += decoder.decode(value, { stream: true });
-                buffer = buffer.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-                
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-                
-                for (const line of lines) {
-                    if (line.startsWith('event:')) {
-                        // Store event type for next data line
-                        this._currentEvent = line.slice(6).trim();
-                    } else if (line.startsWith('data:')) {
-                        const data = line.slice(5).trim();
-                        const eventType = this._currentEvent || 'content';
-                        
-                        if (eventType === 'status') {
-                            // Update status
-                            const statusContent = `**Research:** ${instructions}\n\n*${data}*`;
-                            this.canvas.updateNodeContent(researchNode.id, statusContent, true);
-                        } else if (eventType === 'content') {
-                            // Append content to report
-                            reportContent += data;
-                            this.canvas.updateNodeContent(researchNode.id, reportContent, true);
-                            this.graph.updateNode(researchNode.id, { content: reportContent });
-                        } else if (eventType === 'sources') {
-                            // Parse sources JSON
-                            try {
-                                sources = JSON.parse(data);
-                            } catch (e) {
-                                console.error('Failed to parse sources:', e);
-                            }
-                        } else if (eventType === 'done') {
-                            // Add sources to the report if available
-                            if (sources.length > 0) {
-                                reportContent += '\n\n---\n**Sources:**\n';
-                                for (const source of sources) {
-                                    reportContent += `- [${source.title}](${source.url})\n`;
-                                }
-                            }
-                            this.canvas.updateNodeContent(researchNode.id, reportContent, false);
-                            this.graph.updateNode(researchNode.id, { content: reportContent });
-                            
-                            // Generate summary async (don't await)
-                            this.generateNodeSummary(researchNode.id);
-                        } else if (eventType === 'error') {
-                            throw new Error(data);
+            await SSE.readSSEStream(response, {
+                onEvent: (eventType, data) => {
+                    if (eventType === 'status') {
+                        const statusContent = `**Research:** ${instructions}\n\n*${data.trim()}*`;
+                        this.canvas.updateNodeContent(researchNode.id, statusContent, true);
+                    } else if (eventType === 'content') {
+                        reportContent += data;
+                        this.canvas.updateNodeContent(researchNode.id, reportContent, true);
+                        this.graph.updateNode(researchNode.id, { content: reportContent });
+                    } else if (eventType === 'sources') {
+                        try {
+                            sources = JSON.parse(data);
+                        } catch (e) {
+                            console.error('Failed to parse sources:', e);
                         }
-                        
-                        this._currentEvent = null;
                     }
+                },
+                onDone: () => {
+                    // Normalize the report content
+                    reportContent = SSE.normalizeText(reportContent);
+                    
+                    // Add sources to the report if available
+                    if (sources.length > 0) {
+                        reportContent += '\n\n---\n**Sources:**\n';
+                        for (const source of sources) {
+                            reportContent += `- [${source.title}](${source.url})\n`;
+                        }
+                    }
+                    this.canvas.updateNodeContent(researchNode.id, reportContent, false);
+                    this.graph.updateNode(researchNode.id, { content: reportContent });
+                    
+                    // Generate summary async (don't await)
+                    this.generateNodeSummary(researchNode.id);
+                },
+                onError: (err) => {
+                    throw err;
                 }
-            }
+            });
             
             this.saveSession();
             
@@ -922,44 +902,21 @@ class App {
                 throw new Error(`Failed to fill cell: ${response.statusText}`);
             }
             
-            // Stream the response
+            // Stream the response using shared SSE utility
             let cellContent = '';
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-            
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                
-                buffer += decoder.decode(value, { stream: true });
-                // Normalize CRLF to LF before parsing (SSE uses CRLF per HTTP spec)
-                buffer = buffer.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-                
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';  // Keep incomplete line in buffer
-                
-                for (const line of lines) {
-                    if (line.startsWith('event:')) {
-                        this._currentEvent = line.slice(6).trim();
-                    } else if (line.startsWith('data:')) {
-                        // Don't trim - preserve spaces in token content
-                        const data = line.slice(5);
-                        const eventType = this._currentEvent || 'content';
-                        
-                        if (eventType === 'content') {
-                            cellContent += data;
-                            this.canvas.updateMatrixCell(nodeId, row, col, cellContent, true);
-                        } else if (eventType === 'done') {
-                            this.canvas.updateMatrixCell(nodeId, row, col, cellContent, false);
-                        } else if (eventType === 'error') {
-                            throw new Error(data);
-                        }
-                        
-                        this._currentEvent = null;
-                    }
+            await SSE.streamSSEContent(response, {
+                onContent: (chunk, fullContent) => {
+                    cellContent = fullContent;
+                    this.canvas.updateMatrixCell(nodeId, row, col, cellContent, true);
+                },
+                onDone: (normalizedContent) => {
+                    cellContent = normalizedContent;
+                    this.canvas.updateMatrixCell(nodeId, row, col, cellContent, false);
+                },
+                onError: (err) => {
+                    throw err;
                 }
-            }
+            });
             
             // Update the graph data
             const cellKey = `${row}-${col}`;

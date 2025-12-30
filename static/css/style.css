@@ -334,6 +334,7 @@ html, body {
 
 .node {
     position: relative;
+    width: 100%;
     min-width: 200px;
     background: var(--bg-primary);
     border-radius: var(--radius-lg);
