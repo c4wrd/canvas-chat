@@ -929,6 +929,49 @@ async def exa_search(request: ExaSearchRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def format_research_output(output) -> str:
+    """Format Exa research output object into readable markdown."""
+    if not output:
+        return ""
+
+    output_type = getattr(output, "output_type", None)
+
+    if output_type == "tasks":
+        # Planning phase: show reasoning and task list
+        reasoning = getattr(output, "reasoning", "")
+        tasks = getattr(output, "tasks_instructions", [])
+        parts = []
+        if reasoning:
+            parts.append(f"**Planning:** {reasoning}")
+        if tasks:
+            parts.append("\n**Tasks:**")
+            for i, task in enumerate(tasks, 1):
+                parts.append(f"{i}. {task}")
+        return "\n".join(parts)
+
+    elif output_type == "completed":
+        # Completed research: show content and optionally cost
+        content = getattr(output, "content", "")
+        cost = getattr(output, "cost_dollars", None)
+        parts = [content]
+        if cost:
+            total = getattr(cost, "total", None)
+            if total is not None:
+                parts.append(f"\n\n---\n*Research cost: ${total:.4f}*")
+        return "\n".join(parts)
+
+    elif output_type == "stop":
+        # Research stopped: show reasoning
+        reasoning = getattr(output, "reasoning", "")
+        return f"**Completed:** {reasoning}" if reasoning else ""
+
+    else:
+        # Unknown output type: try to get content or convert to string
+        if hasattr(output, "content"):
+            return output.content
+        return str(output)
+
+
 @app.post("/api/exa/research")
 async def exa_research(request: ExaResearchRequest):
     """
@@ -960,7 +1003,10 @@ async def exa_research(request: ExaResearchRequest):
                 if hasattr(event, "status"):
                     yield {"event": "status", "data": event.status}
                 if hasattr(event, "output") and event.output:
-                    yield {"event": "content", "data": event.output}
+                    # Format the output object into readable markdown
+                    formatted = format_research_output(event.output)
+                    if formatted:
+                        yield {"event": "content", "data": formatted}
                 if hasattr(event, "sources") and event.sources:
                     # Send sources as JSON
                     sources_data = [

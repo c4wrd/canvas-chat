@@ -1029,6 +1029,10 @@ class App {
                         const statusContent = `${reportHeader}*${data.trim()}*`;
                         this.canvas.updateNodeContent(researchNode.id, statusContent, true);
                     } else if (eventType === 'content') {
+                        // Add separator if we already have content beyond the header
+                        if (reportContent.length > reportHeader.length) {
+                            reportContent += '\n\n---\n\n';
+                        }
                         reportContent += data;
                         this.canvas.updateNodeContent(researchNode.id, reportContent, true);
                         this.graph.updateNode(researchNode.id, { content: reportContent });
