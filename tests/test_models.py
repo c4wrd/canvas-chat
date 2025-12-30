@@ -91,3 +91,63 @@ def test_exa_contents_result_missing_required():
 
     with pytest.raises(ValidationError):
         ExaContentsResult(url="https://example.com", text="content")
+
+
+def test_refine_query_request_valid():
+    """Test that RefineQueryRequest validates correct input."""
+    import sys
+
+    sys.path.insert(0, ".")
+    from app import RefineQueryRequest
+
+    request = RefineQueryRequest(
+        user_query="how does this work?",
+        context="Toffoli Gate (CCNOT) is a quantum gate...",
+        command_type="search",
+    )
+    assert request.user_query == "how does this work?"
+    assert request.context == "Toffoli Gate (CCNOT) is a quantum gate..."
+    assert request.command_type == "search"
+
+
+def test_refine_query_request_defaults():
+    """Test RefineQueryRequest default values."""
+    import sys
+
+    sys.path.insert(0, ".")
+    from app import RefineQueryRequest
+
+    request = RefineQueryRequest(user_query="research this", context="Some context")
+    assert request.command_type == "search"  # default
+    assert request.model == "openai/gpt-4o-mini"  # default
+    assert request.api_key is None
+    assert request.base_url is None
+
+
+def test_refine_query_request_research_type():
+    """Test RefineQueryRequest with research command type."""
+    import sys
+
+    sys.path.insert(0, ".")
+    from app import RefineQueryRequest
+
+    request = RefineQueryRequest(
+        user_query="tell me more",
+        context="Quantum computing basics",
+        command_type="research",
+    )
+    assert request.command_type == "research"
+
+
+def test_refine_query_request_missing_required():
+    """Test that RefineQueryRequest requires user_query and context."""
+    import sys
+
+    sys.path.insert(0, ".")
+    from app import RefineQueryRequest
+
+    with pytest.raises(ValidationError):
+        RefineQueryRequest(context="Some context")
+
+    with pytest.raises(ValidationError):
+        RefineQueryRequest(user_query="some query")

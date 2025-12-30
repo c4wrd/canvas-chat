@@ -778,31 +778,50 @@ async def estimate_tokens(text: str, model: str = "openai/gpt-4o"):
         return {"tokens": len(text) // 4, "model": model, "estimated": True}
 
 
-class GenerateSearchQueryRequest(BaseModel):
-    """Request body for generating a contextual search query."""
+class RefineQueryRequest(BaseModel):
+    """Request body for refining a user query with context."""
 
     user_query: str  # What the user typed (e.g., "how does this work?")
     context: str  # The context from selected text or parent nodes
+    command_type: str = "search"  # "search" or "research"
     model: str = "openai/gpt-4o-mini"
     api_key: Optional[str] = None
     base_url: Optional[str] = None
 
 
-@app.post("/api/generate-search-query")
-async def generate_search_query(request: GenerateSearchQueryRequest):
+@app.post("/api/refine-query")
+async def refine_query(request: RefineQueryRequest):
     """
-    Use an LLM to generate an effective search query from user input and context.
+    Use an LLM to refine a user query using surrounding context.
 
     This resolves pronouns and vague references like "how does this work?"
-    into specific, searchable queries based on the surrounding context.
+    into specific queries based on the surrounding context.
+    Works for both search queries and research instructions.
     """
     logger.info(
-        f"Generate search query: user_query='{request.user_query}', context_length={len(request.context)}"
+        f"Refine query: user_query='{request.user_query}', command_type={request.command_type}, context_length={len(request.context)}"
     )
 
     provider = extract_provider(request.model)
 
-    system_prompt = """You are a search query optimizer. Given a user's question and the context it refers to, generate an effective web search query.
+    # Different prompts for search vs research
+    if request.command_type == "research":
+        system_prompt = """You are a research instructions optimizer. Given a user's research request and the context it refers to, generate clear, specific research instructions.
+
+Rules:
+- Return ONLY the refined research instructions, nothing else
+- Resolve any pronouns or vague references (like "this", "it", "that") using the context
+- Make the instructions specific and actionable
+- Include key technical terms from the context
+- Keep it concise but complete (1-2 sentences)
+- Do not include quotes around the instructions
+
+Examples:
+- User: "research more about this" Context: "Toffoli Gate (CCNOT)..." → "Research the Toffoli gate (CCNOT) in quantum computing, including its applications, implementation, and relationship to reversible computing"
+- User: "find alternatives" Context: "gradient descent optimization..." → "Research alternative optimization algorithms to gradient descent, comparing their convergence properties and use cases"
+- User: "explain how this works" Context: "transformer attention mechanism..." → "Research how the transformer attention mechanism works, including self-attention, multi-head attention, and their computational complexity" """
+    else:
+        system_prompt = """You are a search query optimizer. Given a user's question and the context it refers to, generate an effective web search query.
 
 Rules:
 - Return ONLY the search query text, nothing else
@@ -828,7 +847,7 @@ Examples:
                 },
             ],
             "temperature": 0.3,
-            "max_tokens": 100,
+            "max_tokens": 150,
         }
 
         # Add API key if provided
@@ -838,22 +857,22 @@ Examples:
             kwargs["base_url"] = request.base_url
 
         response = await litellm.acompletion(**kwargs)
-        search_query = response.choices[0].message.content.strip()
+        refined_query = response.choices[0].message.content.strip()
 
         # Remove quotes if the LLM wrapped the query in them
-        if search_query.startswith('"') and search_query.endswith('"'):
-            search_query = search_query[1:-1]
+        if refined_query.startswith('"') and refined_query.endswith('"'):
+            refined_query = refined_query[1:-1]
 
-        logger.info(f"Generated search query: '{search_query}'")
-        return {"original_query": request.user_query, "search_query": search_query}
+        logger.info(f"Refined query: '{refined_query}'")
+        return {"original_query": request.user_query, "refined_query": refined_query}
 
     except Exception as e:
-        logger.error(f"Failed to generate search query: {e}")
+        logger.error(f"Failed to refine query: {e}")
         logger.error(traceback.format_exc())
         # Fall back to the original query if LLM fails
         return {
             "original_query": request.user_query,
-            "search_query": request.user_query,
+            "refined_query": request.user_query,
         }
 
 

@@ -644,7 +644,7 @@ class App {
         if (content.startsWith('/research ')) {
             const instructions = content.slice(10).trim();
             if (instructions) {
-                await this.handleResearch(instructions);
+                await this.handleResearch(instructions, context);
                 return true;
             }
         }
@@ -836,12 +836,13 @@ class App {
                 const model = this.modelPicker.value;
                 const apiKey = chat.getApiKeyForModel(model);
                 
-                const refineResponse = await fetch('/api/generate-search-query', {
+                const refineResponse = await fetch('/api/refine-query', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         user_query: query,
                         context: context,
+                        command_type: 'search',
                         model: model,
                         api_key: apiKey
                     })
@@ -849,7 +850,7 @@ class App {
                 
                 if (refineResponse.ok) {
                     const refineData = await refineResponse.json();
-                    effectiveQuery = refineData.search_query;
+                    effectiveQuery = refineData.refined_query;
                     // Update node to show what we're actually searching for
                     this.canvas.updateNodeContent(searchNode.id, `Searching: "${effectiveQuery}"`, true);
                 }
@@ -915,7 +916,12 @@ class App {
         }
     }
 
-    async handleResearch(instructions) {
+    /**
+     * Handle research command.
+     * @param {string} instructions - The user's research instructions
+     * @param {string} context - Optional context to help refine the instructions (e.g., selected text)
+     */
+    async handleResearch(instructions, context = null) {
         // Get Exa API key
         const exaKey = storage.getExaApiKey();
         if (!exaKey) {
@@ -934,7 +940,7 @@ class App {
             }
         }
         
-        // Create research node
+        // Create research node with original instructions initially
         const researchNode = createNode(NodeType.RESEARCH, `**Research:** ${instructions}\n\n*Starting research...*`, {
             position: this.graph.autoPosition(parentIds),
             width: 500  // Research nodes are wider for markdown reports
@@ -962,12 +968,41 @@ class App {
         );
         
         try {
+            let effectiveInstructions = instructions;
+            
+            // If context is provided, use LLM to generate better research instructions
+            if (context && context.trim()) {
+                this.canvas.updateNodeContent(researchNode.id, `**Research:** ${instructions}\n\n*Refining research instructions...*`, true);
+                
+                const model = this.modelPicker.value;
+                const apiKey = chat.getApiKeyForModel(model);
+                
+                const refineResponse = await fetch('/api/refine-query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_query: instructions,
+                        context: context,
+                        command_type: 'research',
+                        model: model,
+                        api_key: apiKey
+                    })
+                });
+                
+                if (refineResponse.ok) {
+                    const refineData = await refineResponse.json();
+                    effectiveInstructions = refineData.refined_query;
+                    // Update node to show what we're actually researching
+                    this.canvas.updateNodeContent(researchNode.id, `**Research:** ${instructions}\n*Researching: "${effectiveInstructions}"*\n\n*Starting research...*`, true);
+                }
+            }
+            
             // Call Exa Research API (SSE stream)
             const response = await fetch('/api/exa/research', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    instructions: instructions,
+                    instructions: effectiveInstructions,
                     api_key: exaKey,
                     model: 'exa-research'
                 })
@@ -978,13 +1013,20 @@ class App {
             }
             
             // Parse SSE stream using shared utility
-            let reportContent = `**Research:** ${instructions}\n\n`;
+            // Show both original and refined instructions if different
+            let reportHeader;
+            if (effectiveInstructions !== instructions) {
+                reportHeader = `**Research:** ${instructions}\n*Researching: "${effectiveInstructions}"*\n\n`;
+            } else {
+                reportHeader = `**Research:** ${instructions}\n\n`;
+            }
+            let reportContent = reportHeader;
             let sources = [];
             
             await SSE.readSSEStream(response, {
                 onEvent: (eventType, data) => {
                     if (eventType === 'status') {
-                        const statusContent = `**Research:** ${instructions}\n\n*${data.trim()}*`;
+                        const statusContent = `${reportHeader}*${data.trim()}*`;
                         this.canvas.updateNodeContent(researchNode.id, statusContent, true);
                     } else if (eventType === 'content') {
                         reportContent += data;
