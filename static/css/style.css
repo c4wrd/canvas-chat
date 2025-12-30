@@ -358,13 +358,18 @@ html, body {
 }
 
 .node.faded {
-    opacity: 0.65;
+    opacity: 0.4;
     transition: opacity 0.2s ease;
 }
 
 .node.context-ancestor {
     border-color: var(--selection-color);
     background: var(--context-highlight);
+}
+
+/* Ancestors should be less faded than non-ancestors */
+.node.faded.context-ancestor {
+    opacity: 0.85;
 }
 
 .node.dragging {
