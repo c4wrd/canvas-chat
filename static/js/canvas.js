@@ -1277,10 +1277,19 @@ class Canvas {
     }
 
     getNodeSummaryText(node) {
-        // Priority: user-set title > LLM summary > truncated content
+        // Priority: user-set title > LLM summary > generated fallback
         if (node.title) return node.title;
         if (node.summary) return node.summary;
-        // For content fallback, strip markdown and truncate
+        
+        // For matrix nodes, generate from context and dimensions
+        if (node.type === NodeType.MATRIX) {
+            const context = node.context || 'Matrix';
+            const rows = node.rowItems?.length || 0;
+            const cols = node.colItems?.length || 0;
+            return `${context} (${rows}×${cols})`;
+        }
+        
+        // For other nodes, strip markdown and truncate content
         const plainText = (node.content || '').replace(/[#*_`>\[\]()!]/g, '').trim();
         return this.truncate(plainText, 60);
     }
@@ -1325,6 +1334,10 @@ class Canvas {
      */
     renderMatrixNodeContent(node) {
         const { context, rowItems, colItems, cells } = node;
+        
+        // Get summary text for semantic zoom (reuse same logic as other nodes)
+        const summaryText = this.getNodeSummaryText(node);
+        const typeIcon = this.getNodeTypeIcon(node.type);
         
         // Build table HTML
         let tableHtml = '<table class="matrix-table"><thead><tr>';
@@ -1374,6 +1387,10 @@ class Canvas {
         tableHtml += '</tbody></table>';
         
         return `
+            <div class="node-summary" title="Double-click to edit title">
+                <span class="node-type-icon">${typeIcon}</span>
+                <span class="summary-text">${this.escapeHtml(summaryText)}</span>
+            </div>
             <div class="node-header">
                 <div class="drag-handle" title="Drag to move">
                     <span class="grip-dot"></span><span class="grip-dot"></span>

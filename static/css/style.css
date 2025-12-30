@@ -1097,6 +1097,25 @@ html, body {
     text-decoration: underline;
 }
 
+.api-key-group.copilot-note {
+    background: var(--node-highlight);
+    border: 1px solid var(--node-highlight-border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    margin-top: 8px;
+}
+
+.api-key-group.copilot-note strong {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 4px;
+    color: var(--text-primary);
+}
+
+.api-key-group.copilot-note .key-hint {
+    margin-top: 0;
+}
+
 .primary-btn {
     width: 100%;
     padding: 12px 16px;
@@ -1430,7 +1449,7 @@ kbd {
 .node.matrix .node-content {
     padding: 0;
     overflow: hidden;
-    height: calc(100% - 70px); /* Fill available space minus header/footer */
+    height: calc(100% - 95px); /* Fill available space minus header/summary/footer */
     display: flex;
     flex-direction: column;
 }

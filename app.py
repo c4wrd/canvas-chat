@@ -141,6 +141,36 @@ MODEL_REGISTRY: list[dict] = [
     },
     # Anthropic
     {
+        "id": "anthropic/claude-sonnet-4-5-20250929",
+        "name": "Claude Sonnet 4.5",
+        "provider": "Anthropic",
+        "context_window": 200000,
+    },
+    {
+        "id": "anthropic/claude-opus-4-5-20251101",
+        "name": "Claude Opus 4.5",
+        "provider": "Anthropic",
+        "context_window": 200000,
+    },
+    {
+        "id": "anthropic/claude-opus-4-20250514",
+        "name": "Claude Opus 4",
+        "provider": "Anthropic",
+        "context_window": 200000,
+    },
+    {
+        "id": "anthropic/claude-sonnet-4-20250514",
+        "name": "Claude Sonnet 4",
+        "provider": "Anthropic",
+        "context_window": 200000,
+    },
+    {
+        "id": "anthropic/claude-3-7-sonnet-20250219",
+        "name": "Claude 3.7 Sonnet",
+        "provider": "Anthropic",
+        "context_window": 200000,
+    },
+    {
         "id": "anthropic/claude-3-5-sonnet-20241022",
         "name": "Claude 3.5 Sonnet",
         "provider": "Anthropic",
@@ -268,6 +298,28 @@ def extract_provider(model: str) -> str:
     return "openai"
 
 
+def get_copilot_headers(model: str) -> dict:
+    """Return extra headers needed for GitHub Copilot models.
+
+    GitHub Copilot API requires specific headers for IDE authentication.
+    See: https://docs.litellm.ai/docs/providers/github_copilot
+    """
+    if model.startswith("github_copilot/"):
+        return {
+            "editor-version": "vscode/1.85.1",
+            "Copilot-Integration-Id": "vscode-chat",
+        }
+    return {}
+
+
+def add_copilot_headers(kwargs: dict, model: str) -> dict:
+    """Add GitHub Copilot headers to kwargs if needed."""
+    copilot_headers = get_copilot_headers(model)
+    if copilot_headers:
+        kwargs["extra_headers"] = copilot_headers
+    return kwargs
+
+
 # --- Routes ---
 
 
@@ -313,6 +365,9 @@ async def chat(request: ChatRequest, http_request: Request):
     if request.base_url:
         kwargs["base_url"] = request.base_url
 
+    # Add GitHub Copilot headers if needed
+    add_copilot_headers(kwargs, request.model)
+
     async def generate():
         """Generate SSE events from the LLM stream."""
         try:
@@ -327,13 +382,36 @@ async def chat(request: ChatRequest, http_request: Request):
             yield {"event": "done", "data": ""}
 
         except litellm.AuthenticationError as e:
-            yield {"event": "error", "data": f"Authentication failed: {e}"}
+            error_msg = str(e)
+            # Check for GitHub Copilot auth issues
+            if (
+                "github_copilot" in request.model.lower()
+                or "copilot" in error_msg.lower()
+            ):
+                yield {
+                    "event": "error",
+                    "data": f'GitHub Copilot authentication required. Please run \'python -c "import litellm; litellm.completion(model=\\"github_copilot/gpt-4\\", messages=[{{\\"role\\": \\"user\\", \\"content\\": \\"test\\"}}])"\' in your terminal to authenticate. Original error: {error_msg}',
+                }
+            else:
+                yield {"event": "error", "data": f"Authentication failed: {error_msg}"}
         except litellm.RateLimitError as e:
             yield {"event": "error", "data": f"Rate limit exceeded: {e}"}
         except litellm.APIError as e:
             yield {"event": "error", "data": f"API error: {e}"}
         except Exception as e:
-            yield {"event": "error", "data": f"Error: {e}"}
+            error_msg = str(e)
+            # Also check for Copilot auth in general exceptions
+            if request.model.startswith("github_copilot/") and (
+                "auth" in error_msg.lower()
+                or "device" in error_msg.lower()
+                or "token" in error_msg.lower()
+            ):
+                yield {
+                    "event": "error",
+                    "data": f"GitHub Copilot authentication required. Please check your terminal/server logs for the device code and URL to authenticate. Error: {error_msg}",
+                }
+            else:
+                yield {"event": "error", "data": f"Error: {error_msg}"}
 
     return EventSourceResponse(generate())
 
@@ -370,6 +448,9 @@ Summary:"""
 
     if request.base_url:
         kwargs["base_url"] = request.base_url
+
+    # Add GitHub Copilot headers if needed
+    add_copilot_headers(kwargs, request.model)
 
     try:
         response = await litellm.acompletion(**kwargs)
@@ -578,6 +659,9 @@ Example output: ["Item one full text", "Item two full text", "Item three full te
         if request.base_url:
             kwargs["base_url"] = request.base_url
 
+        # Add GitHub Copilot headers if needed
+        add_copilot_headers(kwargs, request.model)
+
         response = await litellm.acompletion(**kwargs)
         content = response.choices[0].message.content.strip()
 
@@ -663,6 +747,9 @@ Example output: {{"rows": ["Row item 1", "Row item 2"], "columns": ["Column A", 
         if request.base_url:
             kwargs["base_url"] = request.base_url
 
+        # Add GitHub Copilot headers if needed
+        add_copilot_headers(kwargs, request.model)
+
         response = await litellm.acompletion(**kwargs)
         content = response.choices[0].message.content.strip()
 
@@ -747,6 +834,9 @@ Evaluate this intersection:"""
             if request.base_url:
                 kwargs["base_url"] = request.base_url
 
+            # Add GitHub Copilot headers if needed
+            add_copilot_headers(kwargs, request.model)
+
             response = await litellm.acompletion(**kwargs)
 
             async for chunk in response:
@@ -813,6 +903,9 @@ Examples of good titles:
         if request.base_url:
             kwargs["base_url"] = request.base_url
 
+        # Add GitHub Copilot headers if needed
+        add_copilot_headers(kwargs, request.model)
+
         response = await litellm.acompletion(**kwargs)
         title = response.choices[0].message.content.strip()
 
@@ -875,6 +968,9 @@ Examples:
 
         if request.base_url:
             kwargs["base_url"] = request.base_url
+
+        # Add GitHub Copilot headers if needed
+        add_copilot_headers(kwargs, request.model)
 
         response = await litellm.acompletion(**kwargs)
         summary = response.choices[0].message.content.strip()

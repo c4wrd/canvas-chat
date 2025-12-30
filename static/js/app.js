@@ -845,6 +845,9 @@ class App {
         // Clear selection
         this.canvas.clearSelection();
         
+        // Generate summary async (don't await)
+        this.generateNodeSummary(matrixNode.id);
+        
         this.saveSession();
         this.updateEmptyState();
     }
@@ -1436,22 +1439,40 @@ class App {
 
     /**
      * Generate a summary for a node (for semantic zoom)
-     * Called async after AI/Research/Cell nodes complete
+     * Called async after AI/Research/Cell/Matrix nodes complete
      */
     async generateNodeSummary(nodeId) {
         const node = this.graph.getNode(nodeId);
-        if (!node || !node.content || node.summary) return;
+        if (!node || node.summary) return;
         
-        // Only generate for AI, Research, and Cell nodes
-        if (node.type !== NodeType.AI && node.type !== NodeType.RESEARCH && node.type !== NodeType.CELL) return;
+        // Only generate for supported node types
+        const supportedTypes = [NodeType.AI, NodeType.RESEARCH, NodeType.CELL, NodeType.MATRIX];
+        if (!supportedTypes.includes(node.type)) return;
+        
+        // For non-matrix nodes, require content
+        if (node.type !== NodeType.MATRIX && !node.content) return;
         
         try {
             const model = this.modelPicker.value;
             const apiKey = chat.getApiKeyForModel(model);
             const baseUrl = chat.getBaseUrl();
             
+            // Build content string based on node type
+            let contentForSummary;
+            if (node.type === NodeType.MATRIX) {
+                // For matrix, describe the structure
+                const filledCells = Object.values(node.cells || {}).filter(c => c.filled).length;
+                const totalCells = (node.rowItems?.length || 0) * (node.colItems?.length || 0);
+                contentForSummary = `Matrix evaluation: "${node.context}"\n` +
+                    `Rows: ${node.rowItems?.join(', ')}\n` +
+                    `Columns: ${node.colItems?.join(', ')}\n` +
+                    `Progress: ${filledCells}/${totalCells} cells filled`;
+            } else {
+                contentForSummary = node.content;
+            }
+            
             const requestBody = {
-                content: node.content,
+                content: contentForSummary,
                 model,
                 api_key: apiKey
             };
@@ -1494,13 +1515,14 @@ class App {
     }
 
     /**
-     * Generate summaries for existing AI/Research nodes that don't have them
+     * Generate summaries for existing nodes that don't have them
      * Called after loading a session to lazily populate missing summaries
      */
     generateMissingSummaries() {
+        const supportedTypes = [NodeType.AI, NodeType.RESEARCH, NodeType.CELL, NodeType.MATRIX];
         const nodes = this.graph.getAllNodes();
         for (const node of nodes) {
-            if ((node.type === NodeType.AI || node.type === NodeType.RESEARCH || node.type === NodeType.CELL) && !node.summary) {
+            if (supportedTypes.includes(node.type) && !node.summary) {
                 // Don't await - let them run in parallel/background
                 this.generateNodeSummary(node.id);
             }
