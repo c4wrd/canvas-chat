@@ -22,6 +22,26 @@ const NodeType = {
 };
 
 /**
+ * Node types that should have fixed size with scrollable content
+ * These nodes often have long streaming content (LLM responses, fetched articles, etc.)
+ */
+const SCROLLABLE_NODE_TYPES = [
+    NodeType.AI,
+    NodeType.SUMMARY,
+    NodeType.RESEARCH,
+    NodeType.FETCH_RESULT
+];
+
+/**
+ * Default fixed size for scrollable nodes (4:3 aspect ratio)
+ * Prevents nodes from growing unboundedly during streaming
+ */
+const SCROLLABLE_NODE_SIZE = {
+    width: 640,
+    height: 480
+};
+
+/**
  * Edge types
  */
 const EdgeType = {
@@ -52,11 +72,19 @@ const TAG_COLORS = [
  * Create a new node
  */
 function createNode(type, content, options = {}) {
+    // Apply default fixed size for scrollable node types
+    // These nodes have long content that should scroll rather than expand
+    const isScrollable = SCROLLABLE_NODE_TYPES.includes(type);
+    const defaultWidth = isScrollable ? SCROLLABLE_NODE_SIZE.width : undefined;
+    const defaultHeight = isScrollable ? SCROLLABLE_NODE_SIZE.height : undefined;
+    
     return {
         id: crypto.randomUUID(),
         type,
         content,
         position: options.position || { x: 0, y: 0 },
+        width: options.width || defaultWidth,
+        height: options.height || defaultHeight,
         created_at: Date.now(),
         model: options.model || null,
         selection: options.selection || null, // For branch-from-selection
@@ -1124,6 +1152,8 @@ window.Graph = Graph;
 window.NodeType = NodeType;
 window.EdgeType = EdgeType;
 window.TAG_COLORS = TAG_COLORS;
+window.SCROLLABLE_NODE_TYPES = SCROLLABLE_NODE_TYPES;
+window.SCROLLABLE_NODE_SIZE = SCROLLABLE_NODE_SIZE;
 window.createNode = createNode;
 window.createEdge = createEdge;
 window.createMatrixNode = createMatrixNode;

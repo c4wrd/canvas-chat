@@ -27,6 +27,9 @@ class Canvas {
         this.nodeElements = new Map();
         this.edgeElements = new Map();
         
+        // Track nodes where user has manually scrolled (to pause auto-scroll)
+        this.userScrolledNodes = new Set();
+        
         // Selection state
         this.selectedNodes = new Set();
         this.hoveredNode = null;
@@ -1085,13 +1088,17 @@ class Canvas {
         this.nodeElements.set(node.id, wrapper);
         
         // Auto-size height after render based on actual content
-        // Use requestAnimationFrame to ensure DOM has rendered
-        requestAnimationFrame(() => {
-            const contentHeight = div.offsetHeight;
-            // Use the larger of: stored height, content height, or minimum height
-            const finalHeight = Math.max(contentHeight + 10, node.height || 100, 100);
-            wrapper.setAttribute('height', finalHeight);
-        });
+        // Skip auto-sizing for scrollable node types - they have fixed dimensions
+        const isScrollableType = SCROLLABLE_NODE_TYPES.includes(node.type);
+        if (!isScrollableType) {
+            // Use requestAnimationFrame to ensure DOM has rendered
+            requestAnimationFrame(() => {
+                const contentHeight = div.offsetHeight;
+                // Use the larger of: stored height, content height, or minimum height
+                const finalHeight = Math.max(contentHeight + 10, node.height || 100, 100);
+                wrapper.setAttribute('height', finalHeight);
+            });
+        }
         
         // Setup node event listeners
         this.setupNodeEvents(wrapper, node);
@@ -1404,6 +1411,22 @@ class Canvas {
             });
         }
         
+        // Track user scroll to pause auto-scroll during streaming
+        // If user scrolls up (not at bottom), we stop auto-scrolling
+        const contentEl = div.querySelector('.node-content');
+        if (contentEl) {
+            contentEl.addEventListener('scroll', () => {
+                // Check if user has scrolled away from bottom
+                const isAtBottom = contentEl.scrollHeight - contentEl.scrollTop - contentEl.clientHeight < 50;
+                if (!isAtBottom) {
+                    this.userScrolledNodes.add(node.id);
+                } else {
+                    // If user scrolled back to bottom, re-enable auto-scroll
+                    this.userScrolledNodes.delete(node.id);
+                }
+            });
+        }
+        
         // Double-click on summary to edit title
         const nodeSummary = div.querySelector('.node-summary');
         if (nodeSummary) {
@@ -1430,9 +1453,18 @@ class Canvas {
             if (isStreaming) {
                 contentEl.textContent = content;
                 contentEl.classList.add('streaming');
+                
+                // Auto-scroll to bottom during streaming (unless user manually scrolled up)
+                if (!this.userScrolledNodes.has(nodeId)) {
+                    contentEl.scrollTop = contentEl.scrollHeight;
+                }
             } else {
                 contentEl.innerHTML = this.renderMarkdown(content);
                 contentEl.classList.remove('streaming');
+                
+                // Streaming complete: snap to top and clear scroll tracking
+                contentEl.scrollTop = 0;
+                this.userScrolledNodes.delete(nodeId);
             }
         }
         
@@ -1447,9 +1479,9 @@ class Canvas {
             }
         }
         
-        // Update height
+        // Update height - but skip for scrollable node types which have fixed dimensions
         const div = wrapper.querySelector('.node');
-        if (div) {
+        if (div && !div.classList.contains('viewport-fitted')) {
             wrapper.setAttribute('height', div.offsetHeight + 10);
         }
     }
