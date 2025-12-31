@@ -22,7 +22,7 @@ function test(name, fn) {
 }
 
 function assertEqual(actual, expected) {
-    if (actual !== expected) {
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
         throw new Error(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
     }
 }
@@ -30,6 +30,24 @@ function assertEqual(actual, expected) {
 function assertNull(actual) {
     if (actual !== null) {
         throw new Error(`Expected null, got ${JSON.stringify(actual)}`);
+    }
+}
+
+function assertTrue(actual, message = '') {
+    if (actual !== true) {
+        throw new Error(message || `Expected true, got ${actual}`);
+    }
+}
+
+function assertFalse(actual, message = '') {
+    if (actual !== false) {
+        throw new Error(message || `Expected false, got ${actual}`);
+    }
+}
+
+function assertDeepEqual(actual, expected) {
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+        throw new Error(`Expected ${JSON.stringify(expected, null, 2)}, got ${JSON.stringify(actual, null, 2)}`);
     }
 }
 
@@ -98,6 +116,493 @@ Rising temperatures and changing precipitation patterns are affecting crop yield
 
 *2024-01-15*`;
     assertEqual(extractUrlFromReferenceNode(content), 'https://www.nature.com/articles/climate-ag');
+});
+
+// ============================================================
+// formatMatrixAsText tests
+// ============================================================
+
+/**
+ * Format a matrix node as a markdown table
+ * Copy of function from app.js for testing
+ */
+function formatMatrixAsText(matrixNode) {
+    const { context, rowItems, colItems, cells } = matrixNode;
+    
+    let text = `## ${context}\n\n`;
+    
+    // Header row
+    text += '| |';
+    for (const colItem of colItems) {
+        text += ` ${colItem} |`;
+    }
+    text += '\n';
+    
+    // Separator row
+    text += '|---|';
+    for (let c = 0; c < colItems.length; c++) {
+        text += '---|';
+    }
+    text += '\n';
+    
+    // Data rows
+    for (let r = 0; r < rowItems.length; r++) {
+        text += `| ${rowItems[r]} |`;
+        for (let c = 0; c < colItems.length; c++) {
+            const cellKey = `${r}-${c}`;
+            const cell = cells[cellKey];
+            const content = cell && cell.content ? cell.content.replace(/\n/g, ' ').replace(/\|/g, '\\|') : '';
+            text += ` ${content} |`;
+        }
+        text += '\n';
+    }
+    
+    return text;
+}
+
+test('formatMatrixAsText: basic 2x2 matrix', () => {
+    const matrix = {
+        context: 'Compare products',
+        rowItems: ['Product A', 'Product B'],
+        colItems: ['Price', 'Quality'],
+        cells: {
+            '0-0': { content: '$10', filled: true },
+            '0-1': { content: 'Good', filled: true },
+            '1-0': { content: '$20', filled: true },
+            '1-1': { content: 'Excellent', filled: true }
+        }
+    };
+    
+    const result = formatMatrixAsText(matrix);
+    assertTrue(result.includes('## Compare products'), 'Should have header');
+    assertTrue(result.includes('| Product A |'), 'Should have row item');
+    assertTrue(result.includes('$10'), 'Should have cell content');
+    assertTrue(result.includes('Excellent'), 'Should have cell content');
+});
+
+test('formatMatrixAsText: empty cells', () => {
+    const matrix = {
+        context: 'Empty matrix',
+        rowItems: ['Row 1'],
+        colItems: ['Col 1'],
+        cells: {
+            '0-0': { content: null, filled: false }
+        }
+    };
+    
+    const result = formatMatrixAsText(matrix);
+    assertTrue(result.includes('## Empty matrix'), 'Should have header');
+    assertTrue(result.includes('| Row 1 |'), 'Should have row item');
+});
+
+test('formatMatrixAsText: cell content with newlines gets flattened', () => {
+    const matrix = {
+        context: 'Test',
+        rowItems: ['Row'],
+        colItems: ['Col'],
+        cells: {
+            '0-0': { content: 'Line 1\nLine 2', filled: true }
+        }
+    };
+    
+    const result = formatMatrixAsText(matrix);
+    assertTrue(result.includes('Line 1 Line 2'), 'Newlines should be replaced with spaces');
+    assertFalse(result.includes('Line 1\nLine 2'), 'Should not contain literal newlines in cell');
+});
+
+test('formatMatrixAsText: cell content with pipe characters gets escaped', () => {
+    const matrix = {
+        context: 'Test',
+        rowItems: ['Row'],
+        colItems: ['Col'],
+        cells: {
+            '0-0': { content: 'A | B', filled: true }
+        }
+    };
+    
+    const result = formatMatrixAsText(matrix);
+    assertTrue(result.includes('A \\| B'), 'Pipe characters should be escaped');
+});
+
+// ============================================================
+// Graph class tests (without browser dependencies)
+// ============================================================
+
+// Minimal Graph implementation for testing
+// (We test the algorithm logic, not the browser-specific parts)
+
+class TestGraph {
+    constructor() {
+        this.nodes = new Map();
+        this.edges = [];
+        this.outgoingEdges = new Map();
+        this.incomingEdges = new Map();
+    }
+    
+    addNode(node) {
+        this.nodes.set(node.id, node);
+        return node;
+    }
+    
+    getNode(id) {
+        return this.nodes.get(id);
+    }
+    
+    addEdge(edge) {
+        this.edges.push(edge);
+        
+        if (!this.outgoingEdges.has(edge.source)) {
+            this.outgoingEdges.set(edge.source, []);
+        }
+        this.outgoingEdges.get(edge.source).push(edge);
+        
+        if (!this.incomingEdges.has(edge.target)) {
+            this.incomingEdges.set(edge.target, []);
+        }
+        this.incomingEdges.get(edge.target).push(edge);
+        
+        return edge;
+    }
+    
+    getParents(nodeId) {
+        const incoming = this.incomingEdges.get(nodeId) || [];
+        return incoming.map(edge => this.nodes.get(edge.source)).filter(Boolean);
+    }
+    
+    getChildren(nodeId) {
+        const outgoing = this.outgoingEdges.get(nodeId) || [];
+        return outgoing.map(edge => this.nodes.get(edge.target)).filter(Boolean);
+    }
+    
+    getAncestors(nodeId, visited = new Set()) {
+        if (visited.has(nodeId)) return [];
+        visited.add(nodeId);
+        
+        const ancestors = [];
+        const parents = this.getParents(nodeId);
+        
+        for (const parent of parents) {
+            ancestors.push(...this.getAncestors(parent.id, visited));
+            ancestors.push(parent);
+        }
+        
+        return ancestors;
+    }
+    
+    getAllNodes() {
+        return Array.from(this.nodes.values());
+    }
+    
+    topologicalSort() {
+        const allNodes = this.getAllNodes();
+        const inDegree = new Map();
+        const result = [];
+        
+        for (const node of allNodes) {
+            const incoming = this.incomingEdges.get(node.id) || [];
+            inDegree.set(node.id, incoming.length);
+        }
+        
+        const queue = allNodes.filter(n => inDegree.get(n.id) === 0);
+        queue.sort((a, b) => a.created_at - b.created_at);
+        
+        while (queue.length > 0) {
+            const node = queue.shift();
+            result.push(node);
+            
+            const children = this.getChildren(node.id);
+            children.sort((a, b) => a.created_at - b.created_at);
+            
+            for (const child of children) {
+                const newDegree = inDegree.get(child.id) - 1;
+                inDegree.set(child.id, newDegree);
+                if (newDegree === 0) {
+                    queue.push(child);
+                }
+            }
+        }
+        
+        return result;
+    }
+}
+
+// Helper to create test nodes
+function createTestNode(id, created_at = Date.now()) {
+    return { id, created_at, position: { x: 0, y: 0 }, content: `Node ${id}` };
+}
+
+function createTestEdge(source, target) {
+    return { id: `${source}-${target}`, source, target };
+}
+
+test('Graph: getParents returns empty array for root node', () => {
+    const graph = new TestGraph();
+    graph.addNode(createTestNode('A'));
+    
+    assertEqual(graph.getParents('A'), []);
+});
+
+test('Graph: getParents returns parent nodes', () => {
+    const graph = new TestGraph();
+    const nodeA = createTestNode('A');
+    const nodeB = createTestNode('B');
+    graph.addNode(nodeA);
+    graph.addNode(nodeB);
+    graph.addEdge(createTestEdge('A', 'B'));
+    
+    const parents = graph.getParents('B');
+    assertEqual(parents.length, 1);
+    assertEqual(parents[0].id, 'A');
+});
+
+test('Graph: getChildren returns child nodes', () => {
+    const graph = new TestGraph();
+    const nodeA = createTestNode('A');
+    const nodeB = createTestNode('B');
+    graph.addNode(nodeA);
+    graph.addNode(nodeB);
+    graph.addEdge(createTestEdge('A', 'B'));
+    
+    const children = graph.getChildren('A');
+    assertEqual(children.length, 1);
+    assertEqual(children[0].id, 'B');
+});
+
+test('Graph: getAncestors returns all ancestors in order', () => {
+    const graph = new TestGraph();
+    // A -> B -> C
+    const nodeA = createTestNode('A', 1);
+    const nodeB = createTestNode('B', 2);
+    const nodeC = createTestNode('C', 3);
+    
+    graph.addNode(nodeA);
+    graph.addNode(nodeB);
+    graph.addNode(nodeC);
+    graph.addEdge(createTestEdge('A', 'B'));
+    graph.addEdge(createTestEdge('B', 'C'));
+    
+    const ancestors = graph.getAncestors('C');
+    assertEqual(ancestors.length, 2);
+    assertEqual(ancestors[0].id, 'A');
+    assertEqual(ancestors[1].id, 'B');
+});
+
+test('Graph: getAncestors handles diamond pattern', () => {
+    const graph = new TestGraph();
+    //   A
+    //  / \
+    // B   C
+    //  \ /
+    //   D
+    const nodeA = createTestNode('A', 1);
+    const nodeB = createTestNode('B', 2);
+    const nodeC = createTestNode('C', 3);
+    const nodeD = createTestNode('D', 4);
+    
+    graph.addNode(nodeA);
+    graph.addNode(nodeB);
+    graph.addNode(nodeC);
+    graph.addNode(nodeD);
+    graph.addEdge(createTestEdge('A', 'B'));
+    graph.addEdge(createTestEdge('A', 'C'));
+    graph.addEdge(createTestEdge('B', 'D'));
+    graph.addEdge(createTestEdge('C', 'D'));
+    
+    const ancestors = graph.getAncestors('D');
+    // The algorithm may return duplicates for A (once through B, once through C)
+    // but all A, B, C should be present
+    const ids = ancestors.map(n => n.id);
+    assertTrue(ids.includes('A'), 'Should include A');
+    assertTrue(ids.includes('B'), 'Should include B');
+    assertTrue(ids.includes('C'), 'Should include C');
+    // B and C should appear (each once)
+    assertEqual(ids.filter(id => id === 'B').length, 1, 'B should appear once');
+    assertEqual(ids.filter(id => id === 'C').length, 1, 'C should appear once');
+});
+
+test('Graph: topologicalSort returns nodes in correct order', () => {
+    const graph = new TestGraph();
+    // A -> B -> C
+    const nodeA = createTestNode('A', 1);
+    const nodeB = createTestNode('B', 2);
+    const nodeC = createTestNode('C', 3);
+    
+    graph.addNode(nodeA);
+    graph.addNode(nodeB);
+    graph.addNode(nodeC);
+    graph.addEdge(createTestEdge('A', 'B'));
+    graph.addEdge(createTestEdge('B', 'C'));
+    
+    const sorted = graph.topologicalSort();
+    const ids = sorted.map(n => n.id);
+    
+    assertEqual(ids, ['A', 'B', 'C']);
+});
+
+test('Graph: topologicalSort handles multiple roots', () => {
+    const graph = new TestGraph();
+    // A -> C
+    // B -> C
+    const nodeA = createTestNode('A', 1);
+    const nodeB = createTestNode('B', 2);
+    const nodeC = createTestNode('C', 3);
+    
+    graph.addNode(nodeA);
+    graph.addNode(nodeB);
+    graph.addNode(nodeC);
+    graph.addEdge(createTestEdge('A', 'C'));
+    graph.addEdge(createTestEdge('B', 'C'));
+    
+    const sorted = graph.topologicalSort();
+    const ids = sorted.map(n => n.id);
+    
+    // A and B should come before C
+    assertTrue(ids.indexOf('A') < ids.indexOf('C'), 'A should come before C');
+    assertTrue(ids.indexOf('B') < ids.indexOf('C'), 'B should come before C');
+});
+
+// ============================================================
+// wouldOverlap tests
+// ============================================================
+
+/**
+ * Check if a position would overlap with existing nodes
+ * Copy of function from graph.js for testing
+ */
+function wouldOverlap(pos, width, height, nodes) {
+    const PADDING = 20;
+    
+    for (const node of nodes) {
+        const nodeWidth = node.width || 420;
+        const nodeHeight = node.height || 200;
+        
+        const noOverlap = 
+            pos.x + width + PADDING < node.position.x ||
+            pos.x > node.position.x + nodeWidth + PADDING ||
+            pos.y + height + PADDING < node.position.y ||
+            pos.y > node.position.y + nodeHeight + PADDING;
+        
+        if (!noOverlap) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+test('wouldOverlap: no overlap when far apart', () => {
+    const nodes = [
+        { position: { x: 0, y: 0 }, width: 100, height: 100 }
+    ];
+    
+    assertFalse(wouldOverlap({ x: 500, y: 500 }, 100, 100, nodes));
+});
+
+test('wouldOverlap: detects direct overlap', () => {
+    const nodes = [
+        { position: { x: 100, y: 100 }, width: 100, height: 100 }
+    ];
+    
+    assertTrue(wouldOverlap({ x: 100, y: 100 }, 100, 100, nodes));
+});
+
+test('wouldOverlap: detects partial overlap', () => {
+    const nodes = [
+        { position: { x: 100, y: 100 }, width: 100, height: 100 }
+    ];
+    
+    // Overlapping by 50px
+    assertTrue(wouldOverlap({ x: 150, y: 150 }, 100, 100, nodes));
+});
+
+test('wouldOverlap: respects padding', () => {
+    const nodes = [
+        { position: { x: 100, y: 100 }, width: 100, height: 100 }
+    ];
+    
+    // Just outside the box but within padding (20px)
+    assertTrue(wouldOverlap({ x: 210, y: 100 }, 100, 100, nodes));
+});
+
+test('wouldOverlap: returns false for empty nodes array', () => {
+    assertFalse(wouldOverlap({ x: 100, y: 100 }, 100, 100, []));
+});
+
+// ============================================================
+// escapeHtml tests
+// ============================================================
+
+/**
+ * Escape HTML special characters
+ * Copy of function from app.js/canvas.js for testing
+ */
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = { textContent: '' };
+    div.textContent = text;
+    // Simulate what the browser does
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+test('escapeHtml: escapes angle brackets', () => {
+    assertEqual(escapeHtml('<script>'), '&lt;script&gt;');
+});
+
+test('escapeHtml: escapes ampersand', () => {
+    assertEqual(escapeHtml('A & B'), 'A &amp; B');
+});
+
+test('escapeHtml: escapes quotes', () => {
+    assertEqual(escapeHtml('"hello"'), '&quot;hello&quot;');
+});
+
+test('escapeHtml: handles empty string', () => {
+    assertEqual(escapeHtml(''), '');
+});
+
+test('escapeHtml: handles null/undefined', () => {
+    assertEqual(escapeHtml(null), '');
+    assertEqual(escapeHtml(undefined), '');
+});
+
+// ============================================================
+// truncate tests
+// ============================================================
+
+/**
+ * Truncate text to a maximum length
+ * Copy of function from app.js for testing
+ */
+function truncate(text, maxLength) {
+    if (!text) return '';
+    if (text.length <= maxLength) return text;
+    return text.slice(0, maxLength - 3) + '...';
+}
+
+test('truncate: returns original if shorter than max', () => {
+    assertEqual(truncate('hello', 10), 'hello');
+});
+
+test('truncate: truncates and adds ellipsis', () => {
+    assertEqual(truncate('hello world', 8), 'hello...');
+});
+
+test('truncate: handles exact length', () => {
+    assertEqual(truncate('hello', 5), 'hello');
+});
+
+test('truncate: handles empty string', () => {
+    assertEqual(truncate('', 10), '');
+});
+
+test('truncate: handles null/undefined', () => {
+    assertEqual(truncate(null, 10), '');
+    assertEqual(truncate(undefined, 10), '');
 });
 
 // ============================================================

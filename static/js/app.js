@@ -1780,14 +1780,18 @@ class App {
             return;
         }
         
-        if (!confirm(`Fill ${emptyCells.length} empty cells? This may take a while.`)) {
+        if (!confirm(`Fill ${emptyCells.length} empty cells? This will make parallel API calls.`)) {
             return;
         }
         
-        // Fill cells one by one (row by row)
-        for (const { row, col } of emptyCells) {
-            await this.handleMatrixCellFill(nodeId, row, col);
-        }
+        // Fill all cells in parallel
+        const fillPromises = emptyCells.map(({ row, col }) => 
+            this.handleMatrixCellFill(nodeId, row, col).catch(err => {
+                console.error(`Failed to fill cell (${row}, ${col}):`, err);
+            })
+        );
+        
+        await Promise.all(fillPromises);
     }
     
     /**
@@ -2693,8 +2697,15 @@ class App {
         const node = this.graph.getNode(nodeId);
         if (!node) return;
         
-        // For matrix nodes, copy the context; for others, copy content
-        const textToCopy = node.type === NodeType.MATRIX ? node.context : node.content;
+        let textToCopy;
+        
+        if (node.type === NodeType.MATRIX) {
+            // Format matrix as markdown table
+            textToCopy = this.formatMatrixAsText(node);
+        } else {
+            textToCopy = node.content;
+        }
+        
         if (!textToCopy) return;
         
         try {
@@ -2704,6 +2715,43 @@ class App {
         } catch (err) {
             console.error('Failed to copy:', err);
         }
+    }
+    
+    /**
+     * Format a matrix node as a markdown table
+     */
+    formatMatrixAsText(matrixNode) {
+        const { context, rowItems, colItems, cells } = matrixNode;
+        
+        let text = `## ${context}\n\n`;
+        
+        // Header row
+        text += '| |';
+        for (const colItem of colItems) {
+            text += ` ${colItem} |`;
+        }
+        text += '\n';
+        
+        // Separator row
+        text += '|---|';
+        for (let c = 0; c < colItems.length; c++) {
+            text += '---|';
+        }
+        text += '\n';
+        
+        // Data rows
+        for (let r = 0; r < rowItems.length; r++) {
+            text += `| ${rowItems[r]} |`;
+            for (let c = 0; c < colItems.length; c++) {
+                const cellKey = `${r}-${c}`;
+                const cell = cells[cellKey];
+                const content = cell && cell.content ? cell.content.replace(/\n/g, ' ').replace(/\|/g, '\\|') : '';
+                text += ` ${content} |`;
+            }
+            text += '\n';
+        }
+        
+        return text;
     }
     
     deleteSelectedNodes() {
