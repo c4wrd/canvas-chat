@@ -94,6 +94,17 @@ if (selectedNodeIds.length > 0) {
 - Prefer keyboard shortcuts for power users (document them in tooltips)
 - Animations should be subtle and purposeful (0.15s-0.3s transitions)
 
+### Streaming controls placement
+
+Stop/Continue buttons for LLM generation are placed in a **sticky overlay at the top of each node**,
+not in the scrolling action bar. This design choice supports parallel generations:
+
+- Multiple AI nodes can stream responses simultaneously
+- Each node needs its own accessible stop control
+- The button must not move as content streams in (would be hard to click)
+- Placing controls in a fixed location (like the chat input) wouldn't work because
+  it's ambiguous which generation should be stopped
+
 ### Text selection interactions
 
 When showing tooltips or popups near text selections, **never auto-focus input fields**.

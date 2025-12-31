@@ -979,13 +979,17 @@ class Canvas {
                     <button class="node-action delete-btn" title="Delete node">🗑️</button>
                 </div>
                 <div class="node-content">${this.renderMarkdown(node.content)}</div>
+                ${node.type === NodeType.AI ? `
+                <div class="streaming-controls" style="display:none;">
+                    <button class="streaming-btn stop-btn" title="Stop generating">⏹ Stop</button>
+                    <button class="streaming-btn continue-btn" title="Continue generating" style="display:none;">▶ Continue</button>
+                </div>
+                ` : ''}
                 <div class="node-actions">
                     <button class="node-action reply-btn" title="Reply">↩️ Reply</button>
                     ${node.type === NodeType.AI ? '<button class="node-action summarize-btn" title="Summarize">📝 Summarize</button>' : ''}
                     ${node.type === NodeType.REFERENCE ? '<button class="node-action fetch-summarize-btn" title="Fetch full content and summarize">📄 Fetch & Summarize</button>' : ''}
                     <button class="node-action copy-btn" title="Copy content">📋 Copy</button>
-                    ${node.type === NodeType.AI ? '<button class="node-action stop-btn" title="Stop generating" style="display:none;">⏹ Stop</button>' : ''}
-                    ${node.type === NodeType.AI ? '<button class="node-action continue-btn" title="Continue generating" style="display:none;">▶ Continue</button>' : ''}
                 </div>
                 <div class="resize-handle resize-e" data-resize="e"></div>
                 <div class="resize-handle resize-s" data-resize="s"></div>
@@ -1514,15 +1518,20 @@ class Canvas {
     }
 
     /**
-     * Show the stop button on a node (during streaming)
+     * Show the stop button on a node (during streaming).
+     * The button is in a fixed overlay at the top of the node so it doesn't
+     * move as content streams in - important for parallel generations where
+     * each node needs its own accessible stop control.
      */
     showStopButton(nodeId) {
         const wrapper = this.nodeElements.get(nodeId);
         if (!wrapper) return;
         
+        const controls = wrapper.querySelector('.streaming-controls');
         const stopBtn = wrapper.querySelector('.stop-btn');
         const continueBtn = wrapper.querySelector('.continue-btn');
         
+        if (controls) controls.style.display = 'flex';
         if (stopBtn) stopBtn.style.display = 'inline-flex';
         if (continueBtn) continueBtn.style.display = 'none';
     }
@@ -1534,20 +1543,30 @@ class Canvas {
         const wrapper = this.nodeElements.get(nodeId);
         if (!wrapper) return;
         
+        const controls = wrapper.querySelector('.streaming-controls');
         const stopBtn = wrapper.querySelector('.stop-btn');
+        
         if (stopBtn) stopBtn.style.display = 'none';
+        // Hide the whole control bar if continue is also hidden
+        const continueBtn = wrapper.querySelector('.continue-btn');
+        if (controls && (!continueBtn || continueBtn.style.display === 'none')) {
+            controls.style.display = 'none';
+        }
     }
     
     /**
-     * Show the continue button on a node (after stopping)
+     * Show the continue button on a node (after stopping).
+     * Allows resuming generation for this specific node.
      */
     showContinueButton(nodeId) {
         const wrapper = this.nodeElements.get(nodeId);
         if (!wrapper) return;
         
+        const controls = wrapper.querySelector('.streaming-controls');
         const stopBtn = wrapper.querySelector('.stop-btn');
         const continueBtn = wrapper.querySelector('.continue-btn');
         
+        if (controls) controls.style.display = 'flex';
         if (stopBtn) stopBtn.style.display = 'none';
         if (continueBtn) continueBtn.style.display = 'inline-flex';
     }
@@ -1559,8 +1578,15 @@ class Canvas {
         const wrapper = this.nodeElements.get(nodeId);
         if (!wrapper) return;
         
+        const controls = wrapper.querySelector('.streaming-controls');
         const continueBtn = wrapper.querySelector('.continue-btn');
+        
         if (continueBtn) continueBtn.style.display = 'none';
+        // Hide the whole control bar if stop is also hidden
+        const stopBtn = wrapper.querySelector('.stop-btn');
+        if (controls && (!stopBtn || stopBtn.style.display === 'none')) {
+            controls.style.display = 'none';
+        }
     }
     
     /**

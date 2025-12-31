@@ -880,6 +880,51 @@ html, body {
     50% { opacity: 0; }
 }
 
+/* Streaming Controls - fixed at top of node during generation */
+.streaming-controls {
+    position: sticky;
+    top: 0;
+    display: none;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: linear-gradient(to bottom, var(--node-bg) 80%, transparent);
+    z-index: 10;
+    margin: -12px -12px 8px -12px;
+    padding-top: 12px;
+}
+
+.streaming-btn {
+    padding: 6px 16px;
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    box-shadow: var(--shadow-sm);
+}
+
+.streaming-btn.stop-btn {
+    background: var(--danger);
+    color: white;
+}
+
+.streaming-btn.stop-btn:hover {
+    background: #e03131;
+    transform: scale(1.02);
+}
+
+.streaming-btn.continue-btn {
+    background: var(--success);
+    color: white;
+}
+
+.streaming-btn.continue-btn:hover {
+    background: #2f9e44;
+    transform: scale(1.02);
+}
+
 /* Node Actions */
 .node-actions {
     display: flex;
@@ -909,28 +954,6 @@ html, body {
 
 .node-action:hover {
     background: rgba(0, 0, 0, 0.1);
-}
-
-/* Stop generation button */
-.node-action.stop-btn {
-    background: var(--danger);
-    color: white;
-    font-weight: 500;
-}
-
-.node-action.stop-btn:hover {
-    background: #e03131;
-}
-
-/* Continue generation button */
-.node-action.continue-btn {
-    background: var(--success);
-    color: white;
-    font-weight: 500;
-}
-
-.node-action.continue-btn:hover {
-    background: #2f9e44;
 }
 
 /* Error node styling */
