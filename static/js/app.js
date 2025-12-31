@@ -984,10 +984,11 @@ class App {
         this.graph.addEdge(aiEdge);
         this.canvas.renderEdge(aiEdge, humanNode.position, aiNode.position);
         
-        // Center on the new AI node
-        this.canvas.centerOn(
+        // Smoothly pan to the new AI node
+        this.canvas.centerOnAnimated(
             aiNode.position.x + 160,
-            aiNode.position.y + 100
+            aiNode.position.y + 100,
+            300
         );
         
         // Build context and send to LLM
@@ -1080,10 +1081,11 @@ class App {
         this.saveSession();
         this.updateEmptyState();
         
-        // Center on search node
-        this.canvas.centerOn(
+        // Smoothly pan to search node
+        this.canvas.centerOnAnimated(
             searchNode.position.x + 160,
-            searchNode.position.y + 100
+            searchNode.position.y + 100,
+            300
         );
         
         try {
@@ -1221,10 +1223,11 @@ class App {
         this.saveSession();
         this.updateEmptyState();
         
-        // Center on research node
-        this.canvas.centerOn(
+        // Smoothly pan to research node
+        this.canvas.centerOnAnimated(
             researchNode.position.x + 250,
-            researchNode.position.y + 100
+            researchNode.position.y + 100,
+            300
         );
         
         try {
@@ -2168,10 +2171,11 @@ class App {
                 this.graph.addEdge(aiEdge);
                 this.canvas.renderEdge(aiEdge, humanNode.position, aiNode.position);
                 
-                // Center on the AI node
-                this.canvas.centerOn(
+                // Smoothly pan to the AI node
+                this.canvas.centerOnAnimated(
                     aiNode.position.x + 160,
-                    aiNode.position.y + 100
+                    aiNode.position.y + 100,
+                    300
                 );
                 
                 // Build context and stream LLM response
@@ -3856,8 +3860,8 @@ class App {
         this.canvas.clearSelection();
         this.canvas.selectNode(nodeId);
         
-        // Pan to center the node in view
-        this.canvas.panToNode(nodeId);
+        // Smoothly pan to center the node in view
+        this.canvas.panToNodeAnimated(nodeId, 300);
     }
     
     /**

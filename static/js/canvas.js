@@ -619,7 +619,7 @@ class Canvas {
     }
 
     /**
-     * Center on a specific position
+     * Center on a specific position (instant)
      */
     centerOn(x, y) {
         const rect = this.container.getBoundingClientRect();
@@ -629,7 +629,36 @@ class Canvas {
     }
     
     /**
-     * Pan to center a specific node in the viewport
+     * Smoothly animate to center on a specific position
+     */
+    centerOnAnimated(x, y, duration = 300) {
+        const rect = this.container.getBoundingClientRect();
+        const endX = x - (rect.width / this.scale) / 2;
+        const endY = y - (rect.height / this.scale) / 2;
+        
+        const startX = this.viewBox.x;
+        const startY = this.viewBox.y;
+        const startTime = performance.now();
+        
+        const animate = (currentTime) => {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+            
+            this.viewBox.x = startX + (endX - startX) * eased;
+            this.viewBox.y = startY + (endY - startY) * eased;
+            this.updateViewBox();
+            
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            }
+        };
+        
+        requestAnimationFrame(animate);
+    }
+    
+    /**
+     * Pan to center a specific node in the viewport (instant)
      */
     panToNode(nodeId) {
         const wrapper = this.nodeElements.get(nodeId);
@@ -645,6 +674,24 @@ class Canvas {
         const centerY = y + height / 2;
         
         this.centerOn(centerX, centerY);
+    }
+    
+    /**
+     * Smoothly pan to center a specific node in the viewport
+     */
+    panToNodeAnimated(nodeId, duration = 300) {
+        const wrapper = this.nodeElements.get(nodeId);
+        if (!wrapper) return;
+        
+        const x = parseFloat(wrapper.getAttribute('x'));
+        const y = parseFloat(wrapper.getAttribute('y'));
+        const width = parseFloat(wrapper.getAttribute('width')) || 420;
+        const height = parseFloat(wrapper.getAttribute('height')) || 200;
+        
+        const centerX = x + width / 2;
+        const centerY = y + height / 2;
+        
+        this.centerOnAnimated(centerX, centerY, duration);
     }
     
     /**
