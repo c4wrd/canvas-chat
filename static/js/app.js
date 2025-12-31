@@ -402,6 +402,7 @@ class App {
         this.canvas.onMatrixFillAll = this.handleMatrixFillAll.bind(this);
         this.canvas.onMatrixRowExtract = this.handleMatrixRowExtract.bind(this);
         this.canvas.onMatrixColExtract = this.handleMatrixColExtract.bind(this);
+        this.canvas.onMatrixEdit = this.handleMatrixEdit.bind(this);
         
         // Streaming control callbacks
         this.canvas.onNodeStopGeneration = this.handleNodeStopGeneration.bind(this);
@@ -693,6 +694,34 @@ class App {
         });
         document.getElementById('matrix-create-btn').addEventListener('click', () => {
             this.createMatrixNode();
+        });
+        document.getElementById('add-row-btn').addEventListener('click', () => {
+            this.addAxisItem('row-items');
+        });
+        document.getElementById('add-col-btn').addEventListener('click', () => {
+            this.addAxisItem('col-items');
+        });
+        
+        // Edit matrix modal
+        document.getElementById('edit-matrix-close').addEventListener('click', () => {
+            document.getElementById('edit-matrix-modal').style.display = 'none';
+            this._editMatrixData = null;
+        });
+        document.getElementById('edit-matrix-cancel-btn').addEventListener('click', () => {
+            document.getElementById('edit-matrix-modal').style.display = 'none';
+            this._editMatrixData = null;
+        });
+        document.getElementById('edit-matrix-save-btn').addEventListener('click', () => {
+            this.saveMatrixEdits();
+        });
+        document.getElementById('edit-swap-axes-btn').addEventListener('click', () => {
+            this.swapEditMatrixAxes();
+        });
+        document.getElementById('edit-add-row-btn').addEventListener('click', () => {
+            this.addAxisItem('edit-row-items');
+        });
+        document.getElementById('edit-add-col-btn').addEventListener('click', () => {
+            this.addAxisItem('edit-col-items');
         });
         
         // Cell detail modal
@@ -1318,10 +1347,20 @@ class App {
         const model = this.modelPicker.value;
         const apiKey = chat.getApiKeyForModel(model);
         
-        // Show loading state
+        // Clear previous data and show loading state
+        this._matrixData = null;
+        document.getElementById('row-items').innerHTML = '';
+        document.getElementById('col-items').innerHTML = '';
+        document.getElementById('row-count').textContent = '0 items';
+        document.getElementById('col-count').textContent = '0 items';
+        document.getElementById('matrix-warning').style.display = 'none';
+        
+        // Show modal with loading indicator
         const loadingModal = document.getElementById('matrix-modal');
         console.log('Matrix modal element:', loadingModal);
         document.getElementById('matrix-context').value = matrixContext;
+        document.getElementById('matrix-loading').style.display = 'flex';
+        document.getElementById('matrix-create-btn').disabled = true;
         loadingModal.style.display = 'flex';
         console.log('Modal should now be visible');
         
@@ -1354,6 +1393,10 @@ class App {
                 colNodeId = selectedIds[1];
             }
             
+            // Hide loading indicator
+            document.getElementById('matrix-loading').style.display = 'none';
+            document.getElementById('matrix-create-btn').disabled = false;
+            
             // Check for max items warning
             const hasWarning = rowItems.length > 10 || colItems.length > 10;
             document.getElementById('matrix-warning').style.display = hasWarning ? 'block' : 'none';
@@ -1375,6 +1418,7 @@ class App {
             document.getElementById('col-count').textContent = `${this._matrixData.colItems.length} items`;
             
         } catch (err) {
+            document.getElementById('matrix-loading').style.display = 'none';
             alert(`Failed to parse list items: ${err.message}`);
             document.getElementById('matrix-modal').style.display = 'none';
         }
@@ -1431,6 +1475,21 @@ class App {
         return response.json();
     }
     
+    /**
+     * Get the data source and element IDs for a given axis container.
+     * Supports both create modal (row-items, col-items) and edit modal (edit-row-items, edit-col-items).
+     */
+    getAxisConfig(containerId) {
+        const isEdit = containerId.startsWith('edit-');
+        const isRow = containerId.includes('row');
+        const dataSource = isEdit ? this._editMatrixData : this._matrixData;
+        const countId = isEdit 
+            ? (isRow ? 'edit-row-count' : 'edit-col-count')
+            : (isRow ? 'row-count' : 'col-count');
+        const items = dataSource ? (isRow ? dataSource.rowItems : dataSource.colItems) : null;
+        return { dataSource, items, countId, isRow };
+    }
+    
     populateAxisItems(containerId, items) {
         const container = document.getElementById(containerId);
         container.innerHTML = '';
@@ -1441,9 +1500,14 @@ class App {
             li.dataset.index = index;
             
             li.innerHTML = `
-                <span class="axis-item-text" title="${this.escapeHtml(item)}">${this.escapeHtml(this.truncate(item, 50))}</span>
+                <input type="text" class="axis-item-input" value="${this.escapeHtml(item)}" title="${this.escapeHtml(item)}">
                 <button class="axis-item-remove" title="Remove">×</button>
             `;
+            
+            // Edit handler - update data on change
+            li.querySelector('.axis-item-input').addEventListener('change', (e) => {
+                this.updateAxisItem(containerId, index, e.target.value);
+            });
             
             // Remove button handler
             li.querySelector('.axis-item-remove').addEventListener('click', (e) => {
@@ -1456,13 +1520,41 @@ class App {
     }
     
     removeAxisItem(containerId, index) {
-        const isRow = containerId === 'row-items';
-        const items = isRow ? this._matrixData.rowItems : this._matrixData.colItems;
-        items.splice(index, 1);
+        const { items, countId } = this.getAxisConfig(containerId);
+        if (!items) return;
         
+        items.splice(index, 1);
         this.populateAxisItems(containerId, items);
-        const countId = isRow ? 'row-count' : 'col-count';
         document.getElementById(countId).textContent = `${items.length} items`;
+    }
+    
+    updateAxisItem(containerId, index, newValue) {
+        const { items } = this.getAxisConfig(containerId);
+        if (!items || !newValue.trim()) return;
+        
+        items[index] = newValue.trim();
+    }
+    
+    addAxisItem(containerId) {
+        const { items, countId } = this.getAxisConfig(containerId);
+        if (!items) return;
+        
+        if (items.length >= 10) {
+            alert('Maximum 10 items per axis');
+            return;
+        }
+        
+        items.push('New item');
+        this.populateAxisItems(containerId, items);
+        document.getElementById(countId).textContent = `${items.length} items`;
+        
+        // Focus the new item's input
+        const container = document.getElementById(containerId);
+        const lastInput = container.querySelector('.axis-item:last-child .axis-item-input');
+        if (lastInput) {
+            lastInput.focus();
+            lastInput.select();
+        }
     }
     
     swapMatrixAxes() {
@@ -1687,6 +1779,93 @@ class App {
         for (const { row, col } of emptyCells) {
             await this.handleMatrixCellFill(nodeId, row, col);
         }
+    }
+    
+    /**
+     * Handle editing matrix rows and columns
+     */
+    handleMatrixEdit(nodeId) {
+        const matrixNode = this.graph.getNode(nodeId);
+        if (!matrixNode || matrixNode.type !== NodeType.MATRIX) return;
+        
+        // Store edit data
+        this._editMatrixData = {
+            nodeId,
+            rowItems: [...matrixNode.rowItems],
+            colItems: [...matrixNode.colItems]
+        };
+        
+        // Populate the edit modal (reuses unified populateAxisItems)
+        this.populateAxisItems('edit-row-items', this._editMatrixData.rowItems);
+        this.populateAxisItems('edit-col-items', this._editMatrixData.colItems);
+        document.getElementById('edit-row-count').textContent = `${this._editMatrixData.rowItems.length} items`;
+        document.getElementById('edit-col-count').textContent = `${this._editMatrixData.colItems.length} items`;
+        
+        document.getElementById('edit-matrix-modal').style.display = 'flex';
+    }
+    
+    swapEditMatrixAxes() {
+        if (!this._editMatrixData) return;
+        
+        const temp = this._editMatrixData.rowItems;
+        this._editMatrixData.rowItems = this._editMatrixData.colItems;
+        this._editMatrixData.colItems = temp;
+        
+        this.populateAxisItems('edit-row-items', this._editMatrixData.rowItems);
+        this.populateAxisItems('edit-col-items', this._editMatrixData.colItems);
+        document.getElementById('edit-row-count').textContent = `${this._editMatrixData.rowItems.length} items`;
+        document.getElementById('edit-col-count').textContent = `${this._editMatrixData.colItems.length} items`;
+    }
+    
+    saveMatrixEdits() {
+        if (!this._editMatrixData) return;
+        
+        const { nodeId, rowItems, colItems } = this._editMatrixData;
+        
+        if (rowItems.length === 0 || colItems.length === 0) {
+            alert('Both rows and columns must have at least one item');
+            return;
+        }
+        
+        const matrixNode = this.graph.getNode(nodeId);
+        if (!matrixNode) return;
+        
+        // Update node data - need to handle cell mapping if items changed
+        const oldRowItems = matrixNode.rowItems;
+        const oldColItems = matrixNode.colItems;
+        const oldCells = matrixNode.cells;
+        
+        // Remap cells based on item names (if items were reordered or some removed)
+        const newCells = {};
+        for (let r = 0; r < rowItems.length; r++) {
+            const oldRowIndex = oldRowItems.indexOf(rowItems[r]);
+            for (let c = 0; c < colItems.length; c++) {
+                const oldColIndex = oldColItems.indexOf(colItems[c]);
+                if (oldRowIndex !== -1 && oldColIndex !== -1) {
+                    const oldKey = `${oldRowIndex}-${oldColIndex}`;
+                    const newKey = `${r}-${c}`;
+                    if (oldCells[oldKey]) {
+                        newCells[newKey] = oldCells[oldKey];
+                    }
+                }
+            }
+        }
+        
+        // Update the matrix node
+        this.graph.updateNode(nodeId, {
+            rowItems,
+            colItems,
+            cells: newCells
+        });
+        
+        // Re-render the node
+        this.canvas.renderNode(this.graph.getNode(nodeId));
+        
+        // Close modal
+        document.getElementById('edit-matrix-modal').style.display = 'none';
+        this._editMatrixData = null;
+        
+        this.saveSession();
     }
     
     pinCellToCanvas() {

@@ -219,6 +219,11 @@
                     <input type="text" id="matrix-context" placeholder="e.g., evaluate ideas against criteria" readonly>
                 </div>
                 
+                <div id="matrix-loading" class="matrix-loading" style="display: none;">
+                    <div class="loading-spinner"></div>
+                    <span>Extracting rows and columns...</span>
+                </div>
+                
                 <div class="matrix-axes">
                     <div class="matrix-axis">
                         <div class="axis-header">
@@ -228,6 +233,7 @@
                         <ul class="axis-items" id="row-items">
                             <!-- Row items will be populated here -->
                         </ul>
+                        <button class="axis-add-btn" id="add-row-btn">+ Add row</button>
                     </div>
                     
                     <div class="matrix-swap">
@@ -242,6 +248,7 @@
                         <ul class="axis-items" id="col-items">
                             <!-- Column items will be populated here -->
                         </ul>
+                        <button class="axis-add-btn" id="add-col-btn">+ Add column</button>
                     </div>
                 </div>
                 
@@ -252,6 +259,48 @@
                 <div class="modal-actions">
                     <button id="matrix-cancel-btn" class="secondary-btn">Cancel</button>
                     <button id="matrix-create-btn" class="primary-btn">Create Matrix</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Matrix Modal -->
+    <div id="edit-matrix-modal" class="modal" style="display: none;">
+        <div class="modal-content modal-wide">
+            <div class="modal-header">
+                <h2>Edit Matrix</h2>
+                <button class="modal-close" id="edit-matrix-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="matrix-axes">
+                    <div class="matrix-axis">
+                        <div class="axis-header">
+                            <h3>Rows</h3>
+                            <span class="axis-count" id="edit-row-count">0 items</span>
+                        </div>
+                        <ul class="axis-items" id="edit-row-items">
+                        </ul>
+                        <button class="axis-add-btn" id="edit-add-row-btn">+ Add row</button>
+                    </div>
+                    
+                    <div class="matrix-swap">
+                        <button id="edit-swap-axes-btn" class="icon-btn" title="Swap Axes">⇄</button>
+                    </div>
+                    
+                    <div class="matrix-axis">
+                        <div class="axis-header">
+                            <h3>Columns</h3>
+                            <span class="axis-count" id="edit-col-count">0 items</span>
+                        </div>
+                        <ul class="axis-items" id="edit-col-items">
+                        </ul>
+                        <button class="axis-add-btn" id="edit-add-col-btn">+ Add column</button>
+                    </div>
+                </div>
+                
+                <div class="modal-actions">
+                    <button id="edit-matrix-cancel-btn" class="secondary-btn">Cancel</button>
+                    <button id="edit-matrix-save-btn" class="primary-btn">Save Changes</button>
                 </div>
             </div>
         </div>

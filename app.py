@@ -1118,16 +1118,17 @@ async def parse_list(request: ParseListRequest):
 
     provider = extract_provider(request.model)
 
-    system_prompt = """Extract distinct list items from the following text.
+    system_prompt = """Extract distinct items from the following text for use as matrix row/column labels.
 Rules:
 - Return ONLY a JSON array of strings, no other text
-- Each item should be a complete, standalone item from the list
-- Preserve the full text of each item (don't truncate)
+- Extract just the NAME or LABEL of each item, not descriptions
+- For example, if text says "GitHub Copilot: This tool is highly effective...", extract just "GitHub Copilot"
 - If items are numbered or bulleted, remove the numbering/bullets
-- Maximum 10 items - if there are more, pick the 10 most distinct ones
-- If no clear list structure exists, try to identify distinct concepts/topics
+- Maximum 10 items - pick the most distinct ones if there are more
+- Keep labels concise (1-5 words typically)
 
-Example output: ["Item one full text", "Item two full text", "Item three full text"]"""
+Example input: "1. **GitHub Copilot**: Highly effective for Python... 2. **Tabnine**: Supports Python and improves..."
+Example output: ["GitHub Copilot", "Tabnine"]"""
 
     try:
         kwargs = {
@@ -1204,18 +1205,20 @@ async def parse_two_lists(request: ParseTwoListsRequest):
 
     system_prompt = f"""The user wants to create a matrix/table for: {request.context}
 
-Extract TWO separate lists from the following text that could serve as rows and columns for this matrix.
+Extract TWO separate lists from the following text as SHORT LABELS for matrix rows and columns.
 
 Rules:
 - Return ONLY a JSON object with "rows" and "columns" arrays, no other text
-- Each array should contain distinct items from the text
-- Look for two naturally separate categories (e.g., ideas vs criteria, features vs users, options vs factors)
-- If the text has numbered/bulleted lists, those are likely the items
+- Extract just the NAME or LABEL of each item, not descriptions
+- For example: "GitHub Copilot: $10/month..." → "GitHub Copilot" (not the full text)
+- Look for two naturally separate categories (e.g., products vs attributes, services vs features)
+- If the text has numbered/bulleted lists, extract the item names from those
 - If only one list is clearly present, put it in "rows" and infer reasonable column headers from the context
 - Maximum 10 items per list - pick the most distinct ones if there are more
-- Preserve the full text of each item (don't truncate)
+- Keep labels concise (1-5 words typically)
 
-Example output: {{"rows": ["Row item 1", "Row item 2"], "columns": ["Column A", "Column B"]}}"""
+Example input: "1. GitHub Copilot: $10/month... 2. Tabnine: Free tier available..."
+Example output: {{"rows": ["GitHub Copilot", "Tabnine"], "columns": ["Price", "Features", "Python Support"]}}"""
 
     try:
         kwargs = {

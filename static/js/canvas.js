@@ -959,6 +959,17 @@ class Canvas {
                 });
             });
             
+            // Edit button
+            const editBtn = div.querySelector('.matrix-edit-btn');
+            if (editBtn) {
+                editBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (this.onMatrixEdit) {
+                        this.onMatrixEdit(node.id);
+                    }
+                });
+            }
+            
             // Fill all button
             const fillAllBtn = div.querySelector('.matrix-fill-all-btn');
             if (fillAllBtn) {
@@ -1843,6 +1854,7 @@ class Canvas {
                 ${tableHtml}
             </div>
             <div class="matrix-actions">
+                <button class="matrix-edit-btn" title="Edit rows and columns">Edit</button>
                 <button class="matrix-fill-all-btn" title="Fill all empty cells">Fill All</button>
             </div>
             <div class="resize-handle resize-e" data-resize="e"></div>
