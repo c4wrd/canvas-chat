@@ -1068,15 +1068,6 @@ async def exa_get_contents(request: ExaGetContentsRequest):
 # --- Matrix Endpoints ---
 
 
-class ParseListRequest(BaseModel):
-    """Request body for parsing list items from node content."""
-
-    content: str
-    model: str = "openai/gpt-4o-mini"
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
-
-
 class MatrixFillRequest(BaseModel):
     """Request body for filling a matrix cell."""
 
@@ -1107,83 +1098,10 @@ class GenerateSummaryRequest(BaseModel):
     base_url: Optional[str] = None
 
 
-@app.post("/api/parse-list")
-async def parse_list(request: ParseListRequest):
-    """
-    Use LLM to extract list items from freeform text content.
-
-    Returns a list of extracted items (max 10).
-    """
-    logger.info(f"Parse list request: content length={len(request.content)}")
-
-    provider = extract_provider(request.model)
-
-    system_prompt = """Extract distinct items from the following text for use as matrix row/column labels.
-Rules:
-- Return ONLY a JSON array of strings, no other text
-- Extract just the NAME or LABEL of each item, not descriptions
-- For example, if text says "GitHub Copilot: This tool is highly effective...", extract just "GitHub Copilot"
-- If items are numbered or bulleted, remove the numbering/bullets
-- Maximum 10 items - pick the most distinct ones if there are more
-- Keep labels concise (1-5 words typically)
-
-Example input: "1. **GitHub Copilot**: Highly effective for Python... 2. **Tabnine**: Supports Python and improves..."
-Example output: ["GitHub Copilot", "Tabnine"]"""
-
-    try:
-        kwargs = {
-            "model": request.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": request.content},
-            ],
-            "temperature": 0.3,  # Lower temp for more consistent parsing
-        }
-
-        api_key = get_api_key_for_provider(provider, request.api_key)
-        if api_key:
-            kwargs["api_key"] = api_key
-
-        if request.base_url:
-            kwargs["base_url"] = request.base_url
-
-        # Add GitHub Copilot headers if needed
-        add_copilot_headers(kwargs, request.model)
-
-        response = await litellm.acompletion(**kwargs)
-        content = response.choices[0].message.content.strip()
-
-        # Parse the JSON array from the response
-        # Handle potential markdown code blocks
-        if content.startswith("```"):
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
-            content = content.strip()
-
-        items = json.loads(content)
-
-        # Validate and limit to 10 items
-        if not isinstance(items, list):
-            raise ValueError("Response is not a list")
-        items = [str(item) for item in items[:10]]
-
-        logger.info(f"Parsed {len(items)} items from content")
-        return {"items": items, "count": len(items)}
-
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse LLM response as JSON: {e}")
-        raise HTTPException(status_code=500, detail="Failed to parse list items")
-    except Exception as e:
-        logger.error(f"Parse list failed: {e}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 class ParseTwoListsRequest(BaseModel):
-    """Request body for parsing two lists from a single node content."""
+    """Request body for parsing two lists from context nodes."""
 
-    content: str
+    contents: list[str]  # Content from all selected context nodes
     context: str  # User-provided matrix context to help identify the two lists
     model: str = "openai/gpt-4o-mini"
     api_key: Optional[str] = None
@@ -1193,12 +1111,13 @@ class ParseTwoListsRequest(BaseModel):
 @app.post("/api/parse-two-lists")
 async def parse_two_lists(request: ParseTwoListsRequest):
     """
-    Use LLM to extract two separate lists from a single piece of content.
+    Use LLM to extract two separate lists from context node contents.
 
     Returns two lists: one for rows, one for columns (max 10 each).
     """
+    combined_content = "\n\n---\n\n".join(request.contents)
     logger.info(
-        f"Parse two lists request: content length={len(request.content)}, context={request.context[:50]}..."
+        f"Parse two lists request: {len(request.contents)} nodes, total length={len(combined_content)}, context={request.context[:50]}..."
     )
 
     provider = extract_provider(request.model)
@@ -1225,7 +1144,7 @@ Example output: {{"rows": ["GitHub Copilot", "Tabnine"], "columns": ["Price", "F
             "model": request.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": request.content},
+                {"role": "user", "content": combined_content},
             ],
             "temperature": 0.3,
         }

@@ -69,8 +69,13 @@ function createNode(type, content, options = {}) {
 
 /**
  * Create a matrix node for cross-product evaluation
+ * @param {string} context - User-provided context for the evaluation
+ * @param {string[]} contextNodeIds - Array of node IDs that provide context
+ * @param {string[]} rowItems - Array of row item strings
+ * @param {string[]} colItems - Array of column item strings
+ * @param {object} options - Additional options (position, etc.)
  */
-function createMatrixNode(context, rowNodeId, colNodeId, rowItems, colItems, options = {}) {
+function createMatrixNode(context, contextNodeIds, rowItems, colItems, options = {}) {
     // Initialize empty cells object
     const cells = {};
     for (let r = 0; r < rowItems.length; r++) {
@@ -84,8 +89,7 @@ function createMatrixNode(context, rowNodeId, colNodeId, rowItems, colItems, opt
         type: NodeType.MATRIX,
         content: '', // Not used for display
         context,     // User-provided context for the evaluation
-        rowNodeId,   // Source node for row items
-        colNodeId,   // Source node for column items
+        contextNodeIds, // Array of source node IDs that provide context
         rowItems,    // Array of row item strings
         colItems,    // Array of column item strings
         cells,       // Object keyed by "rowIdx-colIdx"

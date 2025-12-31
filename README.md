@@ -71,7 +71,7 @@ Keys are stored locally in your browser's localStorage.
 5. **Auto-layout**: Click 🔀 to automatically arrange all nodes
 6. **Search the web**: Type `/search <query>` to search via Exa
 7. **Research a topic**: Type `/research <topic>` to generate a research report
-8. **Create a matrix**: Select 2 nodes with lists, type `/matrix <context>` to create an evaluation table
+8. **Create a matrix**: Select one or more context nodes, type `/matrix <context>` to create an evaluation table
 9. **Navigate**: Drag the handle (⋮⋮) to move nodes, scroll to zoom, double-click canvas to fit content
 10. **Export**: Click 💾 to save your session as a `.canvaschat` file
 

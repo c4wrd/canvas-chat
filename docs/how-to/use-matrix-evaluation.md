@@ -1,6 +1,6 @@
 # How to use the matrix evaluation feature
 
-The matrix feature enables systematic cross-product evaluation of items from two lists. It creates an interactive table where each cell represents the intersection of a row item and column item, which can be filled with AI-generated evaluations.
+The matrix feature enables systematic cross-product evaluation of items. It creates an interactive table where each cell represents the intersection of a row item and column item, which can be filled with AI-generated evaluations.
 
 ## When to use a matrix
 
@@ -13,30 +13,27 @@ Matrices are useful when you need to evaluate combinations systematically:
 
 ## Creating a matrix
 
-### From two nodes (recommended for distinct lists)
+### Select context nodes
 
-1. Create or select two nodes containing lists of items
-2. Select both nodes (Cmd/Ctrl + click)
-3. Type `/matrix` followed by context describing what you want to evaluate:
-
-```
-/matrix evaluate these marketing channels against customer segments
-```
-
-The first selected node becomes the rows, the second becomes the columns.
-
-### From one node (for extracting two lists from text)
-
-If your text contains two related lists, you can extract them automatically:
-
-1. Select a single node containing text with two lists
-2. Type `/matrix` with context:
+1. Select one or more nodes that contain relevant context for your matrix
+2. Type `/matrix` followed by a description of what rows and columns you want:
 
 ```
-/matrix compare the pros and cons mentioned here
+/matrix evaluate marketing channels (rows) against customer segments (columns)
 ```
 
-The AI will parse out two distinct lists from the content.
+The AI uses your prompt and the content from all selected nodes to extract appropriate row and column items.
+
+### Multiple context nodes
+
+You can select as many nodes as needed to provide context. For example:
+
+1. Select a node with a list of products
+2. Also select a node with evaluation criteria
+3. Also select a node with background research
+4. Run `/matrix compare products against criteria, considering the research context`
+
+All selected nodes become context for the matrix, and edges connect each context node to the resulting matrix.
 
 ### Adjusting the matrix before creation
 
@@ -46,7 +43,7 @@ After running the command, a modal appears showing the extracted items:
 - **Remove items**: Hover over any item and click the X to remove it
 - **Review counts**: The modal shows how many items are in each axis
 
-Click "Create Matrix" when satisfied. The matrix node appears on the canvas, connected to its source nodes.
+Click "Create Matrix" when satisfied. The matrix node appears on the canvas, connected to all its source nodes.
 
 ## Filling matrix cells
 

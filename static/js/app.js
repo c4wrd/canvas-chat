@@ -1377,12 +1377,7 @@ class App {
         console.log('Selected node IDs:', selectedIds);
         
         if (selectedIds.length === 0) {
-            alert('Please select 1 or 2 nodes to create a matrix.\n\n• 1 node: Will extract two lists from it\n• 2 nodes: First = rows, second = columns');
-            return;
-        }
-        
-        if (selectedIds.length > 2) {
-            alert('Please select at most 2 nodes. The first will be rows, the second will be columns.');
+            alert('Please select one or more nodes to provide context for the matrix.');
             return;
         }
         
@@ -1407,33 +1402,17 @@ class App {
         console.log('Modal should now be visible');
         
         try {
-            let rowItems, colItems, rowNodeId, colNodeId;
+            // Gather content from all selected nodes
+            const contents = selectedIds.map(id => {
+                const node = this.graph.getNode(id);
+                return node ? node.content : '';
+            }).filter(c => c);
             
-            if (selectedIds.length === 1) {
-                // Single node: extract two lists from it
-                const node = this.graph.getNode(selectedIds[0]);
-                const result = await this.parseTwoLists(node.content, matrixContext, model, apiKey);
-                
-                rowItems = result.rows;
-                colItems = result.columns;
-                rowNodeId = selectedIds[0];
-                colNodeId = selectedIds[0]; // Same node for both
-                
-            } else {
-                // Two nodes: parse each separately
-                const node1 = this.graph.getNode(selectedIds[0]);
-                const node2 = this.graph.getNode(selectedIds[1]);
-                
-                const [result1, result2] = await Promise.all([
-                    this.parseListItems(node1.content, model, apiKey),
-                    this.parseListItems(node2.content, model, apiKey)
-                ]);
-                
-                rowItems = result1.items;
-                colItems = result2.items;
-                rowNodeId = selectedIds[0];
-                colNodeId = selectedIds[1];
-            }
+            // Parse two lists from all context nodes
+            const result = await this.parseTwoLists(contents, matrixContext, model, apiKey);
+            
+            const rowItems = result.rows;
+            const colItems = result.columns;
             
             // Hide loading indicator
             document.getElementById('matrix-loading').style.display = 'none';
@@ -1446,8 +1425,7 @@ class App {
             // Store parsed data for modal
             this._matrixData = {
                 context: matrixContext,
-                rowNodeId,
-                colNodeId,
+                contextNodeIds: selectedIds,
                 rowItems: rowItems.slice(0, 10),
                 colItems: colItems.slice(0, 10)
             };
@@ -1466,10 +1444,10 @@ class App {
         }
     }
     
-    async parseTwoLists(content, context, model, apiKey) {
+    async parseTwoLists(contents, context, model, apiKey) {
         const baseUrl = chat.getBaseUrl();
         const requestBody = {
-            content,
+            contents,
             context,
             model,
             api_key: apiKey
@@ -1487,31 +1465,6 @@ class App {
         
         if (!response.ok) {
             throw new Error(`Failed to parse lists: ${response.statusText}`);
-        }
-        
-        return response.json();
-    }
-    
-    async parseListItems(content, model, apiKey) {
-        const baseUrl = chat.getBaseUrl();
-        const requestBody = {
-            content,
-            model,
-            api_key: apiKey
-        };
-        
-        if (baseUrl) {
-            requestBody.base_url = baseUrl;
-        }
-        
-        const response = await fetch('/api/parse-list', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody)
-        });
-        
-        if (!response.ok) {
-            throw new Error(`Failed to parse list: ${response.statusText}`);
         }
         
         return response.json();
@@ -1622,38 +1575,41 @@ class App {
     createMatrixNode() {
         if (!this._matrixData) return;
         
-        const { context, rowNodeId, colNodeId, rowItems, colItems } = this._matrixData;
+        const { context, contextNodeIds, rowItems, colItems } = this._matrixData;
         
         if (rowItems.length === 0 || colItems.length === 0) {
             alert('Both rows and columns must have at least one item');
             return;
         }
         
-        // Get source nodes for positioning
-        const rowNode = this.graph.getNode(rowNodeId);
-        const colNode = this.graph.getNode(colNodeId);
+        // Get context nodes for positioning
+        const contextNodes = contextNodeIds.map(id => this.graph.getNode(id)).filter(Boolean);
         
-        // Position matrix to the right of both source nodes
+        if (contextNodes.length === 0) {
+            alert('No valid context nodes found');
+            return;
+        }
+        
+        // Position matrix to the right of all context nodes, centered vertically
+        const maxX = Math.max(...contextNodes.map(n => n.position.x));
+        const avgY = contextNodes.reduce((sum, n) => sum + n.position.y, 0) / contextNodes.length;
         const position = {
-            x: Math.max(rowNode.position.x, colNode.position.x) + 400,
-            y: (rowNode.position.y + colNode.position.y) / 2
+            x: maxX + 450,
+            y: avgY
         };
         
         // Create matrix node
-        const matrixNode = createMatrixNode(context, rowNodeId, colNodeId, rowItems, colItems, { position });
+        const matrixNode = createMatrixNode(context, contextNodeIds, rowItems, colItems, { position });
         
         this.graph.addNode(matrixNode);
         this.canvas.renderNode(matrixNode);
         
-        // Create edges from source nodes
-        const edge1 = createEdge(rowNodeId, matrixNode.id, EdgeType.REPLY);
-        const edge2 = createEdge(colNodeId, matrixNode.id, EdgeType.REPLY);
-        
-        this.graph.addEdge(edge1);
-        this.graph.addEdge(edge2);
-        
-        this.canvas.renderEdge(edge1, rowNode.position, matrixNode.position);
-        this.canvas.renderEdge(edge2, colNode.position, matrixNode.position);
+        // Create edges from all context nodes to the matrix
+        for (const contextNode of contextNodes) {
+            const edge = createEdge(contextNode.id, matrixNode.id, EdgeType.REPLY);
+            this.graph.addEdge(edge);
+            this.canvas.renderEdge(edge, contextNode.position, matrixNode.position);
+        }
         
         // Close modal and clean up
         document.getElementById('matrix-modal').style.display = 'none';
