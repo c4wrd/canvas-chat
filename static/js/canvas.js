@@ -646,6 +646,226 @@ class Canvas {
         
         this.centerOn(centerX, centerY);
     }
+    
+    /**
+     * Animate nodes to new positions with smooth transitions
+     * @param {Object} graph - The graph with updated node positions
+     * @param {Object} options - Animation options
+     * @param {number} options.duration - Animation duration in ms (default 500)
+     * @param {string|null} options.focusNodeId - Node to keep centered (null for fit-to-content)
+     */
+    animateToLayout(graph, options = {}) {
+        const duration = options.duration || 500;
+        const focusNodeId = options.focusNodeId || null;
+        
+        // Collect start and end positions for each node
+        const animations = [];
+        for (const node of graph.getAllNodes()) {
+            const wrapper = this.nodeElements.get(node.id);
+            if (!wrapper) continue;
+            
+            const startX = parseFloat(wrapper.getAttribute('x'));
+            const startY = parseFloat(wrapper.getAttribute('y'));
+            const endX = node.position.x;
+            const endY = node.position.y;
+            
+            // Only animate if position changed
+            if (startX !== endX || startY !== endY) {
+                animations.push({
+                    nodeId: node.id,
+                    wrapper,
+                    startX,
+                    startY,
+                    endX,
+                    endY
+                });
+            }
+        }
+        
+        if (animations.length === 0) {
+            // No position changes, just update edges and optionally fit
+            this.updateAllEdges(graph);
+            if (!focusNodeId) {
+                this.fitToContentAnimated(duration);
+            }
+            return;
+        }
+        
+        // Calculate viewport animation if fitting to content
+        let viewportAnim = null;
+        if (!focusNodeId) {
+            viewportAnim = this.calculateFitToContentViewport(graph, 50);
+        }
+        
+        const startTime = performance.now();
+        
+        const animate = (currentTime) => {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            // Easing function (ease-out cubic)
+            const eased = 1 - Math.pow(1 - progress, 3);
+            
+            // Update node positions
+            for (const anim of animations) {
+                const x = anim.startX + (anim.endX - anim.startX) * eased;
+                const y = anim.startY + (anim.endY - anim.startY) * eased;
+                
+                anim.wrapper.setAttribute('x', x);
+                anim.wrapper.setAttribute('y', y);
+            }
+            
+            // Update all edges
+            this.updateAllEdges(graph);
+            
+            // Animate viewport if fitting to content
+            if (viewportAnim) {
+                this.viewBox.x = viewportAnim.startX + (viewportAnim.endX - viewportAnim.startX) * eased;
+                this.viewBox.y = viewportAnim.startY + (viewportAnim.endY - viewportAnim.startY) * eased;
+                this.viewBox.width = viewportAnim.startWidth + (viewportAnim.endWidth - viewportAnim.startWidth) * eased;
+                this.viewBox.height = viewportAnim.startHeight + (viewportAnim.endHeight - viewportAnim.startHeight) * eased;
+                this.scale = viewportAnim.startScale + (viewportAnim.endScale - viewportAnim.startScale) * eased;
+                this.updateViewBox();
+            }
+            
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            }
+        };
+        
+        requestAnimationFrame(animate);
+    }
+    
+    /**
+     * Calculate the target viewport for fit-to-content
+     */
+    calculateFitToContentViewport(graph, padding = 50) {
+        const nodes = graph.getAllNodes();
+        if (nodes.length === 0) return null;
+        
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+        
+        for (const node of nodes) {
+            const wrapper = this.nodeElements.get(node.id);
+            const width = wrapper ? parseFloat(wrapper.getAttribute('width')) || 420 : 420;
+            const height = wrapper ? parseFloat(wrapper.getAttribute('height')) || 200 : 200;
+            
+            // Use the TARGET position from graph
+            minX = Math.min(minX, node.position.x);
+            minY = Math.min(minY, node.position.y);
+            maxX = Math.max(maxX, node.position.x + width);
+            maxY = Math.max(maxY, node.position.y + height);
+        }
+        
+        const contentWidth = maxX - minX + padding * 2;
+        const contentHeight = maxY - minY + padding * 2;
+        
+        const rect = this.container.getBoundingClientRect();
+        const scaleX = rect.width / contentWidth;
+        const scaleY = rect.height / contentHeight;
+        const endScale = Math.min(scaleX, scaleY, 1);
+        
+        return {
+            startX: this.viewBox.x,
+            startY: this.viewBox.y,
+            startWidth: this.viewBox.width,
+            startHeight: this.viewBox.height,
+            startScale: this.scale,
+            endX: minX - padding,
+            endY: minY - padding,
+            endWidth: rect.width / endScale,
+            endHeight: rect.height / endScale,
+            endScale
+        };
+    }
+    
+    /**
+     * Animated version of fitToContent
+     */
+    fitToContentAnimated(duration = 500) {
+        const nodes = Array.from(this.nodeElements.values());
+        if (nodes.length === 0) return;
+        
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+        
+        for (const wrapper of nodes) {
+            const x = parseFloat(wrapper.getAttribute('x'));
+            const y = parseFloat(wrapper.getAttribute('y'));
+            const width = parseFloat(wrapper.getAttribute('width')) || 420;
+            const height = parseFloat(wrapper.getAttribute('height')) || 200;
+            
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x + width);
+            maxY = Math.max(maxY, y + height);
+        }
+        
+        const padding = 50;
+        const contentWidth = maxX - minX + padding * 2;
+        const contentHeight = maxY - minY + padding * 2;
+        
+        const rect = this.container.getBoundingClientRect();
+        const scaleX = rect.width / contentWidth;
+        const scaleY = rect.height / contentHeight;
+        const endScale = Math.min(scaleX, scaleY, 1);
+        
+        const startX = this.viewBox.x;
+        const startY = this.viewBox.y;
+        const startWidth = this.viewBox.width;
+        const startHeight = this.viewBox.height;
+        const startScale = this.scale;
+        
+        const endX = minX - padding;
+        const endY = minY - padding;
+        const endWidth = rect.width / endScale;
+        const endHeight = rect.height / endScale;
+        
+        const startTime = performance.now();
+        
+        const animate = (currentTime) => {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            const eased = 1 - Math.pow(1 - progress, 3);
+            
+            this.viewBox.x = startX + (endX - startX) * eased;
+            this.viewBox.y = startY + (endY - startY) * eased;
+            this.viewBox.width = startWidth + (endWidth - startWidth) * eased;
+            this.viewBox.height = startHeight + (endHeight - startHeight) * eased;
+            this.scale = startScale + (endScale - startScale) * eased;
+            this.updateViewBox();
+            
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            }
+        };
+        
+        requestAnimationFrame(animate);
+    }
+    
+    /**
+     * Update all edges based on current node positions in graph
+     */
+    updateAllEdges(graph) {
+        for (const edge of graph.getAllEdges()) {
+            const sourceWrapper = this.nodeElements.get(edge.source);
+            const targetWrapper = this.nodeElements.get(edge.target);
+            
+            if (sourceWrapper && targetWrapper) {
+                const sourcePos = {
+                    x: parseFloat(sourceWrapper.getAttribute('x')),
+                    y: parseFloat(sourceWrapper.getAttribute('y'))
+                };
+                const targetPos = {
+                    x: parseFloat(targetWrapper.getAttribute('x')),
+                    y: parseFloat(targetWrapper.getAttribute('y'))
+                };
+                
+                this.renderEdge(edge, sourcePos, targetPos);
+            }
+        }
+    }
 
     // --- Node Rendering ---
 

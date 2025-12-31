@@ -2069,18 +2069,22 @@ class App {
         const layoutPicker = document.getElementById('layout-picker');
         const algorithm = layoutPicker ? layoutPicker.value : 'hierarchical';
         
-        // Run selected layout algorithm
+        // Run selected layout algorithm (updates node.position in graph)
         if (algorithm === 'force') {
             this.graph.forceDirectedLayout(dimensions);
         } else {
             this.graph.autoLayout(dimensions);
         }
         
-        // Re-render the entire graph with new positions
-        this.canvas.renderGraph(this.graph);
+        // Check if any node is selected - if so, keep focus on it
+        const selectedNodeIds = this.canvas.getSelectedNodeIds();
+        const focusNodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : null;
         
-        // Fit to content
-        setTimeout(() => this.canvas.fitToContent(), 100);
+        // Animate nodes to their new positions
+        this.canvas.animateToLayout(this.graph, {
+            duration: 500,
+            focusNodeId
+        });
         
         // Save the new positions
         this.saveSession();
