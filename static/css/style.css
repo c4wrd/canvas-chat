@@ -909,6 +909,37 @@ html, body {
     background: #2f9e44;
 }
 
+.header-btn.fit-viewport-btn {
+    display: inline-flex;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s;
+}
+
+.node:hover .header-btn.fit-viewport-btn {
+    opacity: 0.6;
+}
+
+.header-btn.fit-viewport-btn:hover {
+    opacity: 1;
+    background: var(--accent);
+    color: white;
+}
+
+/* Viewport-fitted nodes have scrollable content */
+.node.viewport-fitted {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.node.viewport-fitted .node-content {
+    flex: 1;
+    overflow: auto;
+    min-height: 0;
+}
+
 /* Node Actions */
 .node-actions {
     display: flex;

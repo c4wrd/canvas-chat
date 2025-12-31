@@ -46,6 +46,7 @@ class Canvas {
         this.onNodeContinueGeneration = null;  // For continuing stopped generation
         this.onNodeRetry = null;  // For retrying failed operations
         this.onNodeDismissError = null;  // For dismissing error nodes
+        this.onNodeFitToViewport = null;  // For resizing node to 80% of viewport
         
         // Reply tooltip state
         this.branchTooltip = null;
@@ -389,6 +390,35 @@ class Canvas {
     }
 
     handleWheel(e) {
+        // Check if scrolling inside a node's scrollable content
+        const scrollableContent = e.target.closest('.node-content');
+        if (scrollableContent) {
+            const node = scrollableContent.closest('.node');
+            // Only allow internal scrolling if node is viewport-fitted (has scrollable content)
+            if (node && node.classList.contains('viewport-fitted')) {
+                // Check if content can scroll in the wheel direction
+                const canScrollUp = scrollableContent.scrollTop > 0;
+                const canScrollDown = scrollableContent.scrollTop < (scrollableContent.scrollHeight - scrollableContent.clientHeight);
+                const canScrollLeft = scrollableContent.scrollLeft > 0;
+                const canScrollRight = scrollableContent.scrollLeft < (scrollableContent.scrollWidth - scrollableContent.clientWidth);
+                
+                // Determine scroll direction from wheel delta
+                const scrollingDown = e.deltaY > 0;
+                const scrollingUp = e.deltaY < 0;
+                const scrollingRight = e.deltaX > 0;
+                const scrollingLeft = e.deltaX < 0;
+                
+                // If content can scroll in the requested direction, let it scroll naturally
+                const shouldScrollVertically = (scrollingDown && canScrollDown) || (scrollingUp && canScrollUp);
+                const shouldScrollHorizontally = (scrollingRight && canScrollRight) || (scrollingLeft && canScrollLeft);
+                
+                if (shouldScrollVertically || shouldScrollHorizontally) {
+                    // Don't prevent default - let the content scroll
+                    return;
+                }
+            }
+        }
+        
         e.preventDefault();
         
         const rect = this.container.getBoundingClientRect();
@@ -892,6 +922,55 @@ class Canvas {
     }
     
     /**
+     * Get the visible viewport dimensions in screen pixels
+     */
+    getViewportDimensions() {
+        const rect = this.container.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+    }
+    
+    /**
+     * Resize a node to fit 80% of the visible viewport
+     * Makes content scrollable if it overflows
+     */
+    resizeNodeToViewport(nodeId) {
+        const wrapper = this.nodeElements.get(nodeId);
+        if (!wrapper) return;
+        
+        const viewport = this.getViewportDimensions();
+        
+        // Calculate 80% of viewport in canvas coordinates
+        // We use screen pixels directly since we want consistent sizing regardless of zoom
+        const targetWidth = Math.round(viewport.width * 0.8 / this.scale);
+        const targetHeight = Math.round(viewport.height * 0.8 / this.scale);
+        
+        // Apply new dimensions
+        wrapper.setAttribute('width', targetWidth);
+        wrapper.setAttribute('height', targetHeight);
+        
+        // Mark node as "viewport-fitted" so CSS can apply scrolling
+        const node = wrapper.querySelector('.node');
+        if (node) {
+            node.classList.add('viewport-fitted');
+            // Set explicit height for content scrolling
+            node.style.height = '100%';
+        }
+        
+        // Update edges after resize
+        const x = parseFloat(wrapper.getAttribute('x'));
+        const y = parseFloat(wrapper.getAttribute('y'));
+        this.updateEdgesForNode(nodeId, { x, y });
+        
+        // Notify callback to persist dimensions
+        if (this.onNodeResize) {
+            this.onNodeResize(nodeId, targetWidth, targetHeight);
+        }
+        
+        // Center the node in viewport
+        this.panToNodeAnimated(nodeId, 300);
+    }
+    
+    /**
      * Update all edges based on current node positions in graph
      */
     updateAllEdges(graph) {
@@ -978,6 +1057,7 @@ class Canvas {
                     <span class="node-model">${node.model || ''}</span>
                     ${node.type === NodeType.AI ? '<button class="header-btn stop-btn" title="Stop generating" style="display:none;">⏹</button>' : ''}
                     ${node.type === NodeType.AI ? '<button class="header-btn continue-btn" title="Continue generating" style="display:none;">▶</button>' : ''}
+                    <button class="header-btn fit-viewport-btn" title="Fit to viewport (f)">⤢</button>
                     <button class="node-action delete-btn" title="Delete node">🗑️</button>
                 </div>
                 <div class="node-content">${this.renderMarkdown(node.content)}</div>
@@ -1198,6 +1278,15 @@ class Canvas {
             continueBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 if (this.onNodeContinueGeneration) this.onNodeContinueGeneration(node.id);
+            });
+        }
+        
+        // Fit to viewport button
+        const fitViewportBtn = div.querySelector('.fit-viewport-btn');
+        if (fitViewportBtn) {
+            fitViewportBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this.onNodeFitToViewport) this.onNodeFitToViewport(node.id);
             });
         }
         
@@ -2132,6 +2221,7 @@ class Canvas {
                     <span class="grip-dot"></span><span class="grip-dot"></span>
                 </div>
                 <span class="node-type">Matrix</span>
+                <button class="header-btn fit-viewport-btn" title="Fit to viewport (f)">⤢</button>
                 <button class="node-action delete-btn" title="Delete node">🗑️</button>
             </div>
             <div class="matrix-context">

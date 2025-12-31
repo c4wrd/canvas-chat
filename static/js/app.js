@@ -412,6 +412,9 @@ class App {
         this.canvas.onNodeRetry = this.handleNodeRetry.bind(this);
         this.canvas.onNodeDismissError = this.handleNodeDismissError.bind(this);
         
+        // Node resize to viewport callback
+        this.canvas.onNodeFitToViewport = this.handleNodeFitToViewport.bind(this);
+        
         // Attach slash command menu to reply tooltip input
         const replyInput = this.canvas.getReplyTooltipInput();
         if (replyInput) {
@@ -842,6 +845,15 @@ class App {
                 if (selectedNodeIds.length === 1) {
                     e.preventDefault();
                     this.copyNodeContent(selectedNodeIds[0]);
+                }
+            }
+            
+            // 'f' to fit selected node to viewport (80%)
+            if (e.key === 'f' && !e.target.matches('input, textarea')) {
+                const selectedNodeIds = this.canvas.getSelectedNodeIds();
+                if (selectedNodeIds.length === 1) {
+                    e.preventDefault();
+                    this.handleNodeFitToViewport(selectedNodeIds[0]);
                 }
             }
         });
@@ -2708,6 +2720,13 @@ class App {
         
         this.saveSession();
         this.updateEmptyState();
+    }
+    
+    /**
+     * Handle resizing a node to fit 80% of the visible viewport
+     */
+    handleNodeFitToViewport(nodeId) {
+        this.canvas.resizeNodeToViewport(nodeId);
     }
     
     /**
