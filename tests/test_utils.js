@@ -763,6 +763,28 @@ test('resolveOverlaps: handles large nodes (640x480)', () => {
     assertFalse(hasAnyOverlap(nodes), 'Large nodes should not overlap after resolution');
 });
 
+test('resolveOverlaps: handles vertically stacked nodes (same X)', () => {
+    // This simulates the screenshot bug - nodes stacked vertically at same X
+    // Node A: y 100-620 (with 40 padding)
+    // Node B: y 400-920
+    // They overlap in Y by: 620 - 400 = 220
+    const nodes = [
+        { position: { x: 100, y: 100 }, width: 640, height: 480 },
+        { position: { x: 100, y: 400 }, width: 640, height: 480 }
+    ];
+    
+    assertTrue(hasAnyOverlap(nodes), 'Vertically stacked nodes should overlap initially');
+    
+    resolveOverlaps(nodes);
+    
+    assertFalse(hasAnyOverlap(nodes), 'Vertically stacked nodes should be separated');
+    
+    // After separation, node B should be pushed down (or A up)
+    // They should be separated by at least the overlap amount
+    const separation = nodes[1].position.y - (nodes[0].position.y + 480 + 40);
+    assertTrue(separation >= 0, `Nodes should have vertical gap, got separation: ${separation}`);
+});
+
 test('resolveOverlaps: handles completely overlapping nodes', () => {
     // Nodes at exact same position
     const nodes = [

@@ -863,7 +863,8 @@ class Graph {
         const ATTRACTION = 0.05;       // Spring constant for edges
         const DAMPING = 0.85;          // Velocity damping
         const PADDING = 40;            // Padding between nodes for overlap check
-        const IDEAL_EDGE_LENGTH = 400; // Ideal edge length
+        // Extra spacing between connected nodes (added to minimum safe distance)
+        const IDEAL_EDGE_LENGTH = 100;
         
         const allNodes = this.getAllNodes();
         if (allNodes.length === 0) return;
@@ -985,8 +986,17 @@ class Graph {
                     const dy = centerBy - centerAy;
                     const distance = Math.sqrt(dx * dx + dy * dy) || 1;
                     
+                    // Calculate minimum safe distance based on node sizes
+                    // Nodes should be far enough apart that they don't overlap
+                    const minSafeDistance = Math.max(
+                        (sizeA.width + sizeB.width) / 2 + PADDING,
+                        (sizeA.height + sizeB.height) / 2 + PADDING
+                    );
+                    // Ideal distance is min safe distance plus some extra spacing
+                    const idealDistance = minSafeDistance + IDEAL_EDGE_LENGTH;
+                    
                     // Spring force (Hooke's law)
-                    const displacement = distance - IDEAL_EDGE_LENGTH;
+                    const displacement = distance - idealDistance;
                     const force = ATTRACTION * displacement;
                     const fx = (dx / distance) * force;
                     const fy = (dy / distance) * force;
