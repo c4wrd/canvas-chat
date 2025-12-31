@@ -19,6 +19,17 @@ Do not mix documentation types. Each document should serve one purpose.
 - Prefer simple, greedy algorithms over complex optimal solutions
 - Local-first: no server-side user data storage
 
+## Post-task review
+
+After completing a task, take a moment to review the code you've written and look for refactoring opportunities:
+
+- Duplicated logic that could be extracted into shared functions
+- Overly complex conditionals that could be simplified
+- Inconsistent patterns that should be unified
+- Dead code or unused variables
+
+It's fine if there's nothing to refactor, but if improvements exist, address them before committing.
+
 ## Architecture patterns
 
 ### API key access
