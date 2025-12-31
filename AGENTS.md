@@ -62,6 +62,18 @@ This enables the LLM to resolve vague references like "how does this work?" into
 The `handleSend()` method uses `context` for LLM conversation context (line ~748).
 If you need a variable for slash command context, use `slashContext` to avoid collision.
 
+### Canvas selection state
+
+To get selected nodes, use `this.canvas.getSelectedNodeIds()` (returns array of node IDs).
+Do NOT use `getSelectedNodes()` - it doesn't exist.
+
+```javascript
+const selectedNodeIds = this.canvas.getSelectedNodeIds();
+if (selectedNodeIds.length > 0) {
+    // Do something with selected nodes
+}
+```
+
 ## Design standards
 
 - New features must be coherent with existing design patterns and visual language

@@ -797,6 +797,15 @@ class App {
                 !e.target.matches('input, textarea')) {
                 this.deleteSelectedNodes();
             }
+            
+            // 'r' to focus reply/chat input when a node is selected
+            if (e.key === 'r' && !e.target.matches('input, textarea')) {
+                const selectedNodeIds = this.canvas.getSelectedNodeIds();
+                if (selectedNodeIds.length > 0) {
+                    e.preventDefault();
+                    this.chatInput.focus();
+                }
+            }
         });
         
         // Search button
