@@ -1436,6 +1436,17 @@ class Canvas {
             }
         }
         
+        // Update the summary text (shown when zoomed out)
+        // Only update when not streaming, to avoid flickering
+        if (!isStreaming) {
+            const summaryTextEl = wrapper.querySelector('.node-summary .summary-text');
+            if (summaryTextEl) {
+                // Strip markdown and truncate for summary display
+                const plainText = (content || '').replace(/[#*_`>\[\]()!]/g, '').trim();
+                summaryTextEl.textContent = this.truncate(plainText, 60);
+            }
+        }
+        
         // Update height
         const div = wrapper.querySelector('.node');
         if (div) {

@@ -85,6 +85,33 @@ if (selectedNodeIds.length > 0) {
 }
 ```
 
+### Node content updates
+
+Nodes have two text displays that must stay in sync:
+
+1. **`.node-content`** - Full content shown when zoomed in
+2. **`.node-summary .summary-text`** - Truncated preview shown when zoomed out
+
+When updating node content, always use `canvas.updateNodeContent(nodeId, content, isStreaming)`.
+This method updates both displays automatically (summary text updates when `isStreaming=false`).
+
+**Common mistake:** Creating a node with placeholder text (e.g., "Loading...") and forgetting
+that the summary text won't update unless `updateNodeContent` is called with `isStreaming=false`
+after the real content arrives.
+
+```javascript
+// Wrong: Summary stays stuck on "Loading..." when zoomed out
+const node = createNode(NodeType.SUMMARY, 'Loading...');
+// ... later ...
+this.graph.updateNode(node.id, { content: realContent }); // Only updates graph, not display!
+
+// Correct: Both content and summary update properly
+const node = createNode(NodeType.SUMMARY, 'Loading...');
+// ... later ...
+this.canvas.updateNodeContent(node.id, realContent, false); // Updates both displays
+this.graph.updateNode(node.id, { content: realContent });
+```
+
 ## Design standards
 
 - New features must be coherent with existing design patterns and visual language
