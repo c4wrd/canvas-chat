@@ -2,12 +2,157 @@
  * Main application - ties together all modules
  */
 
+/**
+ * Format a technical error into a user-friendly message
+ * @param {Error|string} error - The error to format
+ * @returns {{ title: string, description: string, canRetry: boolean }}
+ */
+function formatUserError(error) {
+    const errMsg = error?.message || String(error);
+    const errLower = errMsg.toLowerCase();
+    
+    // Timeout errors
+    if (errLower.includes('timeout') || errLower.includes('etimedout') || errLower.includes('took too long')) {
+        return {
+            title: 'Request timed out',
+            description: 'The server is taking too long to respond. This may be due to high load.',
+            canRetry: true
+        };
+    }
+    
+    // Authentication errors
+    if (errLower.includes('401') || errLower.includes('unauthorized') || errLower.includes('invalid api key')) {
+        return {
+            title: 'Authentication failed',
+            description: 'Your API key may be invalid or expired. Please check your settings.',
+            canRetry: false
+        };
+    }
+    
+    // Rate limit errors
+    if (errLower.includes('429') || errLower.includes('rate limit') || errLower.includes('too many requests')) {
+        return {
+            title: 'Rate limit reached',
+            description: 'Too many requests. Please wait a moment before trying again.',
+            canRetry: true
+        };
+    }
+    
+    // Server errors
+    if (errLower.includes('500') || errLower.includes('502') || errLower.includes('503') || errLower.includes('server error')) {
+        return {
+            title: 'Server error',
+            description: 'The server encountered an error. Please try again later.',
+            canRetry: true
+        };
+    }
+    
+    // Network errors
+    if (errLower.includes('failed to fetch') || errLower.includes('network') || errLower.includes('connection')) {
+        return {
+            title: 'Network error',
+            description: 'Could not connect to the server. Please check your internet connection.',
+            canRetry: true
+        };
+    }
+    
+    // Context length errors
+    if (errLower.includes('context length') || errLower.includes('too long') || errLower.includes('maximum context')) {
+        return {
+            title: 'Message too long',
+            description: 'The conversation is too long for this model. Try selecting fewer nodes.',
+            canRetry: false
+        };
+    }
+    
+    // Default error
+    return {
+        title: 'Something went wrong',
+        description: errMsg || 'An unexpected error occurred. Please try again.',
+        canRetry: true
+    };
+}
+
 // Slash command definitions
 const SLASH_COMMANDS = [
     { command: '/search', description: 'Search the web with Exa AI', placeholder: 'query' },
     { command: '/research', description: 'Deep research with multiple sources', placeholder: 'topic' },
     { command: '/matrix', description: 'Create a comparison matrix', placeholder: 'context for matrix' },
 ];
+
+/**
+ * Undo/Redo manager for tracking user actions
+ */
+class UndoManager {
+    constructor(maxHistory = 50) {
+        this.undoStack = [];
+        this.redoStack = [];
+        this.maxHistory = maxHistory;
+        this.onStateChange = null;  // Callback when undo/redo state changes
+    }
+    
+    /**
+     * Push an action onto the undo stack
+     */
+    push(action) {
+        this.undoStack.push(action);
+        
+        // Limit history size
+        if (this.undoStack.length > this.maxHistory) {
+            this.undoStack.shift();
+        }
+        
+        // Clear redo stack on new action
+        this.redoStack = [];
+        
+        if (this.onStateChange) this.onStateChange();
+    }
+    
+    /**
+     * Undo the last action
+     * @returns {Object|null} The action to undo, or null if nothing to undo
+     */
+    undo() {
+        if (!this.canUndo()) return null;
+        
+        const action = this.undoStack.pop();
+        this.redoStack.push(action);
+        
+        if (this.onStateChange) this.onStateChange();
+        return action;
+    }
+    
+    /**
+     * Redo the last undone action
+     * @returns {Object|null} The action to redo, or null if nothing to redo
+     */
+    redo() {
+        if (!this.canRedo()) return null;
+        
+        const action = this.redoStack.pop();
+        this.undoStack.push(action);
+        
+        if (this.onStateChange) this.onStateChange();
+        return action;
+    }
+    
+    canUndo() {
+        return this.undoStack.length > 0;
+    }
+    
+    canRedo() {
+        return this.redoStack.length > 0;
+    }
+    
+    /**
+     * Clear all history
+     */
+    clear() {
+        this.undoStack = [];
+        this.redoStack = [];
+        if (this.onStateChange) this.onStateChange();
+    }
+}
 
 /**
  * Slash command autocomplete menu
@@ -212,6 +357,16 @@ class App {
         this.searchSelectedIndex = 0;
         this.slashCommandMenu = new SlashCommandMenu();
         
+        // Streaming state
+        this.streamingNodeId = null;
+        this.streamingContext = null;  // Store context for continue functionality
+        
+        // Retry contexts for error recovery
+        this.retryContexts = new Map();  // nodeId -> { type, ...context }
+        
+        // Undo/Redo manager
+        this.undoManager = new UndoManager();
+        
         // UI elements
         this.chatInput = document.getElementById('chat-input');
         this.sendBtn = document.getElementById('send-btn');
@@ -247,6 +402,14 @@ class App {
         this.canvas.onMatrixFillAll = this.handleMatrixFillAll.bind(this);
         this.canvas.onMatrixRowExtract = this.handleMatrixRowExtract.bind(this);
         this.canvas.onMatrixColExtract = this.handleMatrixColExtract.bind(this);
+        
+        // Streaming control callbacks
+        this.canvas.onNodeStopGeneration = this.handleNodeStopGeneration.bind(this);
+        this.canvas.onNodeContinueGeneration = this.handleNodeContinueGeneration.bind(this);
+        
+        // Error handling callbacks
+        this.canvas.onNodeRetry = this.handleNodeRetry.bind(this);
+        this.canvas.onNodeDismissError = this.handleNodeDismissError.bind(this);
         
         // Attach slash command menu to reply tooltip input
         const replyInput = this.canvas.getReplyTooltipInput();
@@ -461,6 +624,23 @@ class App {
             this.saveSettings();
         });
         
+        // Help modal
+        document.getElementById('help-btn').addEventListener('click', () => {
+            this.showHelpModal();
+        });
+        document.getElementById('help-close').addEventListener('click', () => {
+            this.hideHelpModal();
+        });
+        
+        // Undo/Redo buttons
+        this.undoBtn = document.getElementById('undo-btn');
+        this.redoBtn = document.getElementById('redo-btn');
+        this.undoBtn.addEventListener('click', () => this.undo());
+        this.redoBtn.addEventListener('click', () => this.redo());
+        
+        // Wire up undo manager state changes
+        this.undoManager.onStateChange = () => this.updateUndoButtons();
+        
         // Export/Import
         document.getElementById('export-btn').addEventListener('click', () => {
             this.exportSession();
@@ -588,9 +768,28 @@ class App {
             if (e.key === 'Escape') {
                 if (this.isSearchOpen()) {
                     this.closeSearch();
+                } else if (this.isHelpOpen()) {
+                    this.hideHelpModal();
                 } else {
                     this.canvas.clearSelection();
                 }
+            }
+            
+            // ? to show help (when not in input)
+            if (e.key === '?' && !e.target.matches('input, textarea')) {
+                e.preventDefault();
+                this.showHelpModal();
+            }
+            
+            // Cmd/Ctrl+Z for undo, Cmd/Ctrl+Shift+Z for redo
+            if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    this.redo();
+                } else {
+                    this.undo();
+                }
+                return;
             }
             
             // Delete to remove selected nodes
@@ -748,6 +947,11 @@ class App {
         const context = this.graph.resolveContext([humanNode.id]);
         const messages = context.map(m => ({ role: m.role, content: m.content }));
         
+        // Track streaming state for stop/continue functionality
+        this.streamingNodeId = aiNode.id;
+        this.streamingContext = { messages, model, humanNodeId: humanNode.id };
+        this.canvas.showStopButton(aiNode.id);
+        
         // Stream response
         await chat.sendMessage(
             messages,
@@ -759,6 +963,8 @@ class App {
             },
             // onDone
             (fullContent) => {
+                this.streamingNodeId = null;
+                this.canvas.hideStopButton(aiNode.id);
                 this.canvas.updateNodeContent(aiNode.id, fullContent, false);
                 this.graph.updateNode(aiNode.id, { content: fullContent });
                 this.saveSession();
@@ -768,10 +974,17 @@ class App {
             },
             // onError
             (err) => {
-                const errorMsg = `Error: ${err.message}`;
-                this.canvas.updateNodeContent(aiNode.id, errorMsg, false);
-                this.graph.updateNode(aiNode.id, { content: errorMsg });
-                this.saveSession();
+                this.streamingNodeId = null;
+                this.canvas.hideStopButton(aiNode.id);
+                
+                // Format and display user-friendly error
+                const errorInfo = formatUserError(err);
+                this.showNodeError(aiNode.id, errorInfo, {
+                    type: 'chat',
+                    messages,
+                    model,
+                    humanNodeId: humanNode.id
+                });
             }
         );
     }
@@ -1971,7 +2184,15 @@ class App {
         this.updateTagDrawer();
     }
 
-    handleNodeMove(nodeId, newPos) {
+    handleNodeMove(nodeId, newPos, oldPos) {
+        // Only push undo if position actually changed
+        if (oldPos && (oldPos.x !== newPos.x || oldPos.y !== newPos.y)) {
+            this.undoManager.push({
+                type: 'MOVE_NODES',
+                moves: [{ nodeId, from: oldPos, to: newPos }]
+            });
+        }
+        
         this.graph.updateNode(nodeId, { position: newPos });
         this.saveSession();
     }
@@ -1982,9 +2203,25 @@ class App {
     }
 
     handleNodeDelete(nodeId) {
-        if (!confirm('Delete this node? This cannot be undone.')) {
+        if (!confirm('Delete this node?')) {
             return;
         }
+        
+        // Capture node and edges for undo BEFORE deletion
+        const node = this.graph.getNode(nodeId);
+        if (!node) return;
+        
+        const deletedNodes = [{ ...node }];
+        const deletedEdges = this.graph.edges.filter(e => 
+            e.source === nodeId || e.target === nodeId
+        ).map(e => ({ ...e }));
+        
+        // Push undo action
+        this.undoManager.push({
+            type: 'DELETE_NODES',
+            nodes: deletedNodes,
+            edges: deletedEdges
+        });
         
         // Remove from graph (this also removes edges)
         this.graph.removeNode(nodeId);
@@ -2009,12 +2246,24 @@ class App {
         const node = this.graph.getNode(nodeId);
         if (!node) return;
         
+        const oldTitle = node.title;
         const currentTitle = node.title || node.summary || '';
         const newTitle = prompt('Edit node title:', currentTitle);
         
         if (newTitle !== null) {
             // Update the node title (empty string clears it, using summary/truncation as fallback)
             const title = newTitle.trim() || null;
+            
+            // Only push undo if title actually changed
+            if (oldTitle !== title) {
+                this.undoManager.push({
+                    type: 'EDIT_TITLE',
+                    nodeId,
+                    oldTitle,
+                    newTitle: title
+                });
+            }
+            
             this.graph.updateNode(nodeId, { title });
             
             // Update the DOM
@@ -2028,6 +2277,184 @@ class App {
             
             this.saveSession();
         }
+    }
+    
+    /**
+     * Handle stopping generation for a streaming node
+     */
+    handleNodeStopGeneration(nodeId) {
+        if (this.streamingNodeId !== nodeId) return;
+        
+        // Abort the current request
+        chat.abort();
+        
+        // Get current content and add stopped indicator
+        const node = this.graph.getNode(nodeId);
+        if (node) {
+            const stoppedContent = node.content + '\n\n*[Generation stopped]*';
+            this.canvas.updateNodeContent(nodeId, stoppedContent, false);
+            this.graph.updateNode(nodeId, { content: stoppedContent });
+        }
+        
+        // Update UI state
+        this.canvas.hideStopButton(nodeId);
+        this.canvas.showContinueButton(nodeId);
+        this.streamingNodeId = null;
+        
+        this.saveSession();
+    }
+    
+    /**
+     * Handle continuing generation for a stopped node
+     */
+    async handleNodeContinueGeneration(nodeId) {
+        const node = this.graph.getNode(nodeId);
+        if (!node || !this.streamingContext) return;
+        
+        // Hide continue button, show stop button
+        this.canvas.hideContinueButton(nodeId);
+        this.canvas.showStopButton(nodeId);
+        
+        // Get current content (remove the stopped indicator)
+        let currentContent = node.content.replace(/\n\n\*\[Generation stopped\]\*$/, '');
+        
+        // Build messages with current partial response
+        const messages = [
+            ...this.streamingContext.messages,
+            { role: 'assistant', content: currentContent },
+            { role: 'user', content: 'Please continue your response from where you left off.' }
+        ];
+        
+        // Track streaming state
+        this.streamingNodeId = nodeId;
+        
+        // Continue streaming
+        await chat.sendMessage(
+            messages,
+            this.streamingContext.model,
+            // onChunk
+            (chunk, fullContent) => {
+                // Append to existing content
+                const combinedContent = currentContent + fullContent;
+                this.canvas.updateNodeContent(nodeId, combinedContent, true);
+                this.graph.updateNode(nodeId, { content: combinedContent });
+            },
+            // onDone
+            (fullContent) => {
+                this.streamingNodeId = null;
+                this.canvas.hideStopButton(nodeId);
+                const combinedContent = currentContent + fullContent;
+                this.canvas.updateNodeContent(nodeId, combinedContent, false);
+                this.graph.updateNode(nodeId, { content: combinedContent });
+                this.saveSession();
+                
+                // Generate summary async
+                this.generateNodeSummary(nodeId);
+            },
+            // onError
+            (err) => {
+                this.streamingNodeId = null;
+                this.canvas.hideStopButton(nodeId);
+                const errorContent = currentContent + `\n\n*Error continuing: ${err.message}*`;
+                this.canvas.updateNodeContent(nodeId, errorContent, false);
+                this.graph.updateNode(nodeId, { content: errorContent });
+                this.saveSession();
+            }
+        );
+    }
+    
+    /**
+     * Show an error state on a node with retry/dismiss buttons
+     */
+    showNodeError(nodeId, errorInfo, retryContext) {
+        // Store retry context for later
+        if (retryContext) {
+            this.retryContexts.set(nodeId, retryContext);
+        }
+        
+        // Update node content to error message for storage
+        const errorContent = `Error: ${errorInfo.title}\n\n${errorInfo.description}`;
+        this.graph.updateNode(nodeId, { content: errorContent });
+        
+        // Show error UI
+        this.canvas.showNodeError(nodeId, errorInfo);
+        this.saveSession();
+    }
+    
+    /**
+     * Handle retry for a failed node operation
+     */
+    async handleNodeRetry(nodeId) {
+        const context = this.retryContexts.get(nodeId);
+        if (!context) return;
+        
+        // Clear error state
+        this.canvas.clearNodeError(nodeId);
+        this.retryContexts.delete(nodeId);
+        
+        // Re-execute based on context type
+        if (context.type === 'chat') {
+            // Clear the node content and show loading state
+            this.canvas.updateNodeContent(nodeId, '', true);
+            this.graph.updateNode(nodeId, { content: '' });
+            
+            // Track streaming state
+            this.streamingNodeId = nodeId;
+            this.streamingContext = context;
+            this.canvas.showStopButton(nodeId);
+            
+            // Retry the chat request
+            await chat.sendMessage(
+                context.messages,
+                context.model,
+                // onChunk
+                (chunk, fullContent) => {
+                    this.canvas.updateNodeContent(nodeId, fullContent, true);
+                    this.graph.updateNode(nodeId, { content: fullContent });
+                },
+                // onDone
+                (fullContent) => {
+                    this.streamingNodeId = null;
+                    this.canvas.hideStopButton(nodeId);
+                    this.canvas.updateNodeContent(nodeId, fullContent, false);
+                    this.graph.updateNode(nodeId, { content: fullContent });
+                    this.saveSession();
+                    this.generateNodeSummary(nodeId);
+                },
+                // onError
+                (err) => {
+                    this.streamingNodeId = null;
+                    this.canvas.hideStopButton(nodeId);
+                    const errorInfo = formatUserError(err);
+                    this.showNodeError(nodeId, errorInfo, context);
+                }
+            );
+        }
+        // Could add handlers for 'search', 'research' etc. in the future
+    }
+    
+    /**
+     * Handle dismissing an error node (removes it)
+     */
+    handleNodeDismissError(nodeId) {
+        // Clean up retry context
+        this.retryContexts.delete(nodeId);
+        
+        // Remove the node
+        this.graph.removeNode(nodeId);
+        this.canvas.removeNode(nodeId);
+        
+        // Clean up orphaned edges
+        for (const [edgeId, path] of this.canvas.edgeElements) {
+            const sourceId = path.getAttribute('data-source');
+            const targetId = path.getAttribute('data-target');
+            if (!this.graph.getNode(sourceId) || !this.graph.getNode(targetId)) {
+                this.canvas.removeEdge(edgeId);
+            }
+        }
+        
+        this.saveSession();
+        this.updateEmptyState();
     }
     
     /**
@@ -2058,12 +2485,37 @@ class App {
         const selectedIds = this.canvas.getSelectedNodeIds();
         if (selectedIds.length === 0) return;
         
-        if (!confirm(`Delete ${selectedIds.length} node(s)? This cannot be undone.`)) {
+        if (!confirm(`Delete ${selectedIds.length} node(s)?`)) {
             return;
         }
         
+        // Capture all nodes and edges for undo BEFORE deletion
+        const deletedNodes = [];
+        const deletedEdges = [];
+        
         for (const nodeId of selectedIds) {
-            // Get connected edges and remove them from canvas
+            const node = this.graph.getNode(nodeId);
+            if (node) {
+                deletedNodes.push({ ...node });
+            }
+        }
+        
+        // Collect edges that will be deleted
+        for (const edge of this.graph.edges) {
+            if (selectedIds.includes(edge.source) || selectedIds.includes(edge.target)) {
+                deletedEdges.push({ ...edge });
+            }
+        }
+        
+        // Push undo action
+        this.undoManager.push({
+            type: 'DELETE_NODES',
+            nodes: deletedNodes,
+            edges: deletedEdges
+        });
+        
+        // Now perform the deletions
+        for (const nodeId of selectedIds) {
             const node = this.graph.getNode(nodeId);
             if (!node) continue;
             
@@ -2390,6 +2842,206 @@ class App {
     hideSettingsModal() {
         document.getElementById('settings-modal').style.display = 'none';
     }
+    
+    // --- Help Modal ---
+    
+    showHelpModal() {
+        document.getElementById('help-modal').style.display = 'flex';
+    }
+    
+    hideHelpModal() {
+        document.getElementById('help-modal').style.display = 'none';
+    }
+    
+    isHelpOpen() {
+        return document.getElementById('help-modal').style.display === 'flex';
+    }
+    
+    // --- Undo/Redo ---
+    
+    /**
+     * Update the undo/redo button states
+     */
+    updateUndoButtons() {
+        if (this.undoBtn) {
+            this.undoBtn.disabled = !this.undoManager.canUndo();
+        }
+        if (this.redoBtn) {
+            this.redoBtn.disabled = !this.undoManager.canRedo();
+        }
+    }
+    
+    /**
+     * Perform undo operation
+     */
+    undo() {
+        const action = this.undoManager.undo();
+        if (!action) return;
+        
+        this.executeUndo(action);
+        this.saveSession();
+    }
+    
+    /**
+     * Perform redo operation
+     */
+    redo() {
+        const action = this.undoManager.redo();
+        if (!action) return;
+        
+        this.executeRedo(action);
+        this.saveSession();
+    }
+    
+    /**
+     * Execute an undo action (reverse of the original action)
+     */
+    executeUndo(action) {
+        switch (action.type) {
+            case 'DELETE_NODES':
+                // Restore deleted nodes and edges
+                for (const node of action.nodes) {
+                    this.graph.addNode(node);
+                    this.canvas.renderNode(node);
+                }
+                for (const edge of action.edges) {
+                    this.graph.addEdge(edge);
+                    const sourceNode = this.graph.getNode(edge.source);
+                    const targetNode = this.graph.getNode(edge.target);
+                    if (sourceNode && targetNode) {
+                        this.canvas.renderEdge(edge, sourceNode.position, targetNode.position);
+                    }
+                }
+                this.updateEmptyState();
+                break;
+                
+            case 'ADD_NODE':
+                // Remove the added node
+                this.graph.removeNode(action.node.id);
+                this.canvas.removeNode(action.node.id);
+                // Remove orphaned edges
+                for (const [edgeId, path] of this.canvas.edgeElements) {
+                    const sourceId = path.getAttribute('data-source');
+                    const targetId = path.getAttribute('data-target');
+                    if (!this.graph.getNode(sourceId) || !this.graph.getNode(targetId)) {
+                        this.canvas.removeEdge(edgeId);
+                    }
+                }
+                this.updateEmptyState();
+                break;
+                
+            case 'MOVE_NODES':
+                // Restore old positions
+                for (const move of action.moves) {
+                    this.graph.updateNode(move.nodeId, { position: move.from });
+                    const wrapper = this.canvas.nodeElements.get(move.nodeId);
+                    if (wrapper) {
+                        wrapper.setAttribute('x', move.from.x);
+                        wrapper.setAttribute('y', move.from.y);
+                        this.canvas.updateEdgesForNode(move.nodeId, move.from);
+                    }
+                }
+                break;
+                
+            case 'EDIT_TITLE':
+                // Restore old title
+                this.graph.updateNode(action.nodeId, { title: action.oldTitle });
+                const wrapper = this.canvas.nodeElements.get(action.nodeId);
+                if (wrapper) {
+                    const summaryText = wrapper.querySelector('.summary-text');
+                    const node = this.graph.getNode(action.nodeId);
+                    if (summaryText && node) {
+                        summaryText.textContent = action.oldTitle || node.summary || this.canvas.truncate((node.content || '').replace(/[#*_`>\[\]()!]/g, ''), 60);
+                    }
+                }
+                break;
+                
+            case 'TAG_CHANGE':
+                // Restore old tags
+                this.graph.updateNode(action.nodeId, { tags: action.oldTags });
+                // Re-render the node to update tag display
+                const node = this.graph.getNode(action.nodeId);
+                if (node) {
+                    this.canvas.renderNode(node);
+                }
+                break;
+        }
+    }
+    
+    /**
+     * Execute a redo action (re-apply the original action)
+     */
+    executeRedo(action) {
+        switch (action.type) {
+            case 'DELETE_NODES':
+                // Re-delete the nodes
+                for (const node of action.nodes) {
+                    this.graph.removeNode(node.id);
+                    this.canvas.removeNode(node.id);
+                }
+                // Remove orphaned edges from canvas
+                for (const [edgeId, path] of this.canvas.edgeElements) {
+                    const sourceId = path.getAttribute('data-source');
+                    const targetId = path.getAttribute('data-target');
+                    if (!this.graph.getNode(sourceId) || !this.graph.getNode(targetId)) {
+                        this.canvas.removeEdge(edgeId);
+                    }
+                }
+                this.updateEmptyState();
+                break;
+                
+            case 'ADD_NODE':
+                // Re-add the node
+                this.graph.addNode(action.node);
+                this.canvas.renderNode(action.node);
+                for (const edge of action.edges) {
+                    this.graph.addEdge(edge);
+                    const sourceNode = this.graph.getNode(edge.source);
+                    const targetNode = this.graph.getNode(edge.target);
+                    if (sourceNode && targetNode) {
+                        this.canvas.renderEdge(edge, sourceNode.position, targetNode.position);
+                    }
+                }
+                this.updateEmptyState();
+                break;
+                
+            case 'MOVE_NODES':
+                // Apply new positions
+                for (const move of action.moves) {
+                    this.graph.updateNode(move.nodeId, { position: move.to });
+                    const wrapper = this.canvas.nodeElements.get(move.nodeId);
+                    if (wrapper) {
+                        wrapper.setAttribute('x', move.to.x);
+                        wrapper.setAttribute('y', move.to.y);
+                        this.canvas.updateEdgesForNode(move.nodeId, move.to);
+                    }
+                }
+                break;
+                
+            case 'EDIT_TITLE':
+                // Apply new title
+                this.graph.updateNode(action.nodeId, { title: action.newTitle });
+                const wrapper = this.canvas.nodeElements.get(action.nodeId);
+                if (wrapper) {
+                    const summaryText = wrapper.querySelector('.summary-text');
+                    const node = this.graph.getNode(action.nodeId);
+                    if (summaryText && node) {
+                        summaryText.textContent = action.newTitle || node.summary || this.canvas.truncate((node.content || '').replace(/[#*_`>\[\]()!]/g, ''), 60);
+                    }
+                }
+                break;
+                
+            case 'TAG_CHANGE':
+                // Apply new tags
+                this.graph.updateNode(action.nodeId, { tags: action.newTags });
+                // Re-render the node to update tag display
+                const node = this.graph.getNode(action.nodeId);
+                if (node) {
+                    this.canvas.renderNode(node);
+                }
+                break;
+        }
+    }
 
     saveSettings() {
         const keys = {
@@ -2643,6 +3295,19 @@ class App {
         const nodesWithTag = nodeIds.filter(id => this.graph.nodeHasTag(id, color));
         const allHaveTag = nodesWithTag.length === nodeIds.length;
         
+        // Store old tags for undo (for each affected node)
+        const tagChanges = [];
+        for (const nodeId of nodeIds) {
+            const node = this.graph.getNode(nodeId);
+            if (node) {
+                tagChanges.push({
+                    nodeId,
+                    oldTags: [...(node.tags || [])],
+                    newTags: null  // Will be calculated after change
+                });
+            }
+        }
+        
         if (allHaveTag) {
             // Remove from all
             for (const nodeId of nodeIds) {
@@ -2653,6 +3318,24 @@ class App {
             for (const nodeId of nodeIds) {
                 this.graph.addTagToNode(nodeId, color);
             }
+        }
+        
+        // Update newTags in changes and push undo action
+        for (const change of tagChanges) {
+            const node = this.graph.getNode(change.nodeId);
+            if (node) {
+                change.newTags = [...(node.tags || [])];
+            }
+        }
+        
+        // Push undo action for each affected node
+        for (const change of tagChanges) {
+            this.undoManager.push({
+                type: 'TAG_CHANGE',
+                nodeId: change.nodeId,
+                oldTags: change.oldTags,
+                newTags: change.newTags
+            });
         }
         
         this.saveSession();

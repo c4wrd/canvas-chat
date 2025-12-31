@@ -275,11 +275,25 @@ html, body {
     border-radius: var(--radius-sm);
     cursor: pointer;
     font-size: 16px;
-    transition: background 0.15s;
+    transition: background 0.15s, opacity 0.15s;
 }
 
-.icon-btn:hover {
+.icon-btn:hover:not(:disabled) {
     background: var(--bg-secondary);
+}
+
+.icon-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* Undo/Redo controls */
+.undo-redo-controls {
+    display: flex;
+    gap: 2px;
+    margin-right: 8px;
+    padding-right: 12px;
+    border-right: 1px solid var(--bg-secondary);
 }
 
 /* Canvas Container */
@@ -867,6 +881,99 @@ html, body {
     background: rgba(0, 0, 0, 0.1);
 }
 
+/* Stop generation button */
+.node-action.stop-btn {
+    background: var(--danger);
+    color: white;
+    font-weight: 500;
+}
+
+.node-action.stop-btn:hover {
+    background: #e03131;
+}
+
+/* Continue generation button */
+.node-action.continue-btn {
+    background: var(--success);
+    color: white;
+    font-weight: 500;
+}
+
+.node-action.continue-btn:hover {
+    background: #2f9e44;
+}
+
+/* Error node styling */
+.node.error-node {
+    border-color: var(--danger);
+    background: #fff5f5;
+}
+
+@media (prefers-color-scheme: dark) {
+    .node.error-node {
+        background: #2d1f1f;
+    }
+}
+
+.error-content {
+    text-align: center;
+    padding: 20px 16px;
+}
+
+.error-icon {
+    font-size: 32px;
+    margin-bottom: 8px;
+}
+
+.error-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--danger);
+    margin-bottom: 8px;
+}
+
+.error-description {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+    line-height: 1.4;
+}
+
+.error-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+}
+
+.error-retry-btn,
+.error-dismiss-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.error-retry-btn {
+    background: var(--accent);
+    color: white;
+}
+
+.error-retry-btn:hover {
+    background: var(--accent-hover);
+}
+
+.error-dismiss-btn {
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+}
+
+.error-dismiss-btn:hover {
+    background: var(--border);
+}
+
 /* Resize Handles */
 .resize-handle {
     position: absolute;
@@ -1412,10 +1519,96 @@ kbd {
     background: var(--edge-color);
 }
 
-/* Matrix Modal */
+/* Modal wide variant */
 .modal-wide {
     max-width: 700px;
 }
+
+/* Help Modal */
+.help-content {
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.help-section {
+    margin-bottom: 24px;
+}
+
+.help-section:last-child {
+    margin-bottom: 0;
+}
+
+.help-section h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--text-primary);
+}
+
+.help-section ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.help-section ul li {
+    padding: 6px 0;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.help-section ul li strong {
+    color: var(--text-primary);
+}
+
+.shortcuts-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.shortcuts-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--bg-secondary);
+}
+
+.shortcuts-table td:first-child {
+    width: 50%;
+    white-space: nowrap;
+}
+
+.shortcuts-table td:last-child {
+    color: var(--text-secondary);
+}
+
+.shortcuts-table code {
+    background: var(--bg-secondary);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+    font-size: 12px;
+    color: var(--accent);
+}
+
+.shortcuts-table em {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* Keyboard key styling */
+kbd {
+    display: inline-block;
+    padding: 3px 6px;
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    box-shadow: 0 1px 0 var(--border);
+}
+
+/* Matrix Modal */
 
 .matrix-context-group {
     margin-bottom: 20px;

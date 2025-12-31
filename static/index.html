@@ -36,11 +36,16 @@
                 </select>
                 <button id="auto-layout-btn" class="icon-btn" title="Apply Layout">🔀</button>
             </div>
+            <div class="undo-redo-controls">
+                <button id="undo-btn" class="icon-btn" title="Undo (Cmd/Ctrl+Z)" disabled>↶</button>
+                <button id="redo-btn" class="icon-btn" title="Redo (Cmd/Ctrl+Shift+Z)" disabled>↷</button>
+            </div>
             <button id="tags-btn" class="icon-btn" title="Tags">🏷️</button>
             <button id="search-btn" class="icon-btn" title="Search nodes (Cmd/Ctrl+K)">🔍</button>
             <button id="new-canvas-btn" class="icon-btn" title="New Canvas">📄</button>
             <button id="sessions-btn" class="icon-btn" title="Sessions">📚</button>
             <button id="settings-btn" class="icon-btn" title="Settings">⚙️</button>
+            <button id="help-btn" class="icon-btn" title="Help (?)">❓</button>
             <button id="export-btn" class="icon-btn" title="Export">💾</button>
             <button id="import-btn" class="icon-btn" title="Import">📂</button>
         </div>
@@ -320,6 +325,66 @@
             </div>
             <div id="search-results" class="search-results">
                 <div class="search-empty">Type to search through your nodes</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Modal -->
+    <div id="help-modal" class="modal" style="display: none;">
+        <div class="modal-content modal-wide">
+            <div class="modal-header">
+                <h2>Help</h2>
+                <button class="modal-close" id="help-close">&times;</button>
+            </div>
+            <div class="modal-body help-content">
+                <section class="help-section">
+                    <h3>Getting Started</h3>
+                    <ul>
+                        <li>Type a message and press <kbd>Enter</kbd> to start a conversation</li>
+                        <li>Click on a node to select it, then type to reply</li>
+                        <li><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + click to select multiple nodes</li>
+                        <li>Drag the canvas to pan, scroll to zoom</li>
+                        <li>Double-click empty space to fit all nodes in view</li>
+                    </ul>
+                </section>
+                
+                <section class="help-section">
+                    <h3>Keyboard Shortcuts</h3>
+                    <table class="shortcuts-table">
+                        <tbody>
+                            <tr><td><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>K</kbd></td><td>Search nodes</td></tr>
+                            <tr><td><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Z</kbd></td><td>Undo</td></tr>
+                            <tr><td><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd></td><td>Redo</td></tr>
+                            <tr><td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td><td>Delete selected nodes</td></tr>
+                            <tr><td><kbd>Escape</kbd></td><td>Clear selection / Close dialogs</td></tr>
+                            <tr><td><kbd>Enter</kbd></td><td>Send message</td></tr>
+                            <tr><td><kbd>Shift</kbd> + <kbd>Enter</kbd></td><td>New line in message</td></tr>
+                            <tr><td><kbd>?</kbd></td><td>Show this help</td></tr>
+                        </tbody>
+                    </table>
+                </section>
+                
+                <section class="help-section">
+                    <h3>Slash Commands</h3>
+                    <table class="shortcuts-table">
+                        <tbody>
+                            <tr><td><code>/search</code> <em>query</em></td><td>Search the web with Exa AI</td></tr>
+                            <tr><td><code>/research</code> <em>topic</em></td><td>Deep research with multiple sources</td></tr>
+                            <tr><td><code>/matrix</code> <em>context</em></td><td>Create a comparison matrix</td></tr>
+                        </tbody>
+                    </table>
+                </section>
+                
+                <section class="help-section">
+                    <h3>Tips</h3>
+                    <ul>
+                        <li><strong>Branching:</strong> Select text in a node to create a branch from that specific point</li>
+                        <li><strong>Semantic zoom:</strong> Zoom out to see node summaries instead of full content</li>
+                        <li><strong>Context:</strong> The context budget bar shows how much of the model's context window is used</li>
+                        <li><strong>Tags:</strong> Use the 🏷️ button to organize nodes with colored tags</li>
+                        <li><strong>Stop generation:</strong> Click "⏹ Stop" on an AI response to stop and optionally continue later</li>
+                    </ul>
+                </section>
             </div>
         </div>
     </div>

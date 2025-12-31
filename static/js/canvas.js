@@ -21,6 +21,7 @@ class Canvas {
         this.isDraggingNode = false;
         this.draggedNode = null;
         this.dragOffset = { x: 0, y: 0 };
+        this.dragStartPos = null;  // Track start position for undo
         
         // Node elements map
         this.nodeElements = new Map();
@@ -41,6 +42,10 @@ class Canvas {
         this.onNodeFetchSummarize = null;
         this.onNodeDelete = null;
         this.onNodeTitleEdit = null;  // For editing node title in semantic zoom
+        this.onNodeStopGeneration = null;  // For stopping LLM generation
+        this.onNodeContinueGeneration = null;  // For continuing stopped generation
+        this.onNodeRetry = null;  // For retrying failed operations
+        this.onNodeDismissError = null;  // For dismissing error nodes
         
         // Reply tooltip state
         this.branchTooltip = null;
@@ -371,14 +376,15 @@ class Canvas {
                 const nodeEl = wrapper.querySelector('.node');
                 if (nodeEl) nodeEl.classList.remove('dragging');
                 
-                // Callback to persist position
+                // Callback to persist position (pass old position for undo)
                 if (this.onNodeMove) {
-                    this.onNodeMove(this.draggedNode.id, newPos);
+                    this.onNodeMove(this.draggedNode.id, newPos, this.dragStartPos);
                 }
             }
             
             this.isDraggingNode = false;
             this.draggedNode = null;
+            this.dragStartPos = null;
         }
     }
 
@@ -711,6 +717,8 @@ class Canvas {
                     ${node.type === NodeType.AI ? '<button class="node-action summarize-btn" title="Summarize">📝 Summarize</button>' : ''}
                     ${node.type === NodeType.REFERENCE ? '<button class="node-action fetch-summarize-btn" title="Fetch full content and summarize">📄 Fetch & Summarize</button>' : ''}
                     <button class="node-action copy-btn" title="Copy content">📋 Copy</button>
+                    ${node.type === NodeType.AI ? '<button class="node-action stop-btn" title="Stop generating" style="display:none;">⏹ Stop</button>' : ''}
+                    ${node.type === NodeType.AI ? '<button class="node-action continue-btn" title="Continue generating" style="display:none;">▶ Continue</button>' : ''}
                 </div>
                 <div class="resize-handle resize-e" data-resize="e"></div>
                 <div class="resize-handle resize-s" data-resize="s"></div>
@@ -771,6 +779,9 @@ class Canvas {
                 
                 this.isDraggingNode = true;
                 this.draggedNode = node;
+                
+                // Store starting position for undo
+                this.dragStartPos = { ...node.position };
                 
                 const point = this.clientToSvg(e.clientX, e.clientY);
                 this.dragOffset = {
@@ -903,6 +914,24 @@ class Canvas {
                 } catch (err) {
                     console.error('Failed to copy:', err);
                 }
+            });
+        }
+        
+        // Stop generation button (AI nodes only)
+        const stopBtn = div.querySelector('.stop-btn');
+        if (stopBtn) {
+            stopBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this.onNodeStopGeneration) this.onNodeStopGeneration(node.id);
+            });
+        }
+        
+        // Continue generation button (AI nodes only)
+        const continueBtn = div.querySelector('.continue-btn');
+        if (continueBtn) {
+            continueBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this.onNodeContinueGeneration) this.onNodeContinueGeneration(node.id);
             });
         }
         
@@ -1205,6 +1234,114 @@ class Canvas {
                 delete contentEl.dataset.originalHtml;
             }
         }
+    }
+
+    /**
+     * Show the stop button on a node (during streaming)
+     */
+    showStopButton(nodeId) {
+        const wrapper = this.nodeElements.get(nodeId);
+        if (!wrapper) return;
+        
+        const stopBtn = wrapper.querySelector('.stop-btn');
+        const continueBtn = wrapper.querySelector('.continue-btn');
+        
+        if (stopBtn) stopBtn.style.display = 'inline-flex';
+        if (continueBtn) continueBtn.style.display = 'none';
+    }
+    
+    /**
+     * Hide the stop button on a node (when streaming completes)
+     */
+    hideStopButton(nodeId) {
+        const wrapper = this.nodeElements.get(nodeId);
+        if (!wrapper) return;
+        
+        const stopBtn = wrapper.querySelector('.stop-btn');
+        if (stopBtn) stopBtn.style.display = 'none';
+    }
+    
+    /**
+     * Show the continue button on a node (after stopping)
+     */
+    showContinueButton(nodeId) {
+        const wrapper = this.nodeElements.get(nodeId);
+        if (!wrapper) return;
+        
+        const stopBtn = wrapper.querySelector('.stop-btn');
+        const continueBtn = wrapper.querySelector('.continue-btn');
+        
+        if (stopBtn) stopBtn.style.display = 'none';
+        if (continueBtn) continueBtn.style.display = 'inline-flex';
+    }
+    
+    /**
+     * Hide the continue button on a node
+     */
+    hideContinueButton(nodeId) {
+        const wrapper = this.nodeElements.get(nodeId);
+        if (!wrapper) return;
+        
+        const continueBtn = wrapper.querySelector('.continue-btn');
+        if (continueBtn) continueBtn.style.display = 'none';
+    }
+    
+    /**
+     * Show an error state on a node with retry/dismiss buttons
+     */
+    showNodeError(nodeId, errorInfo) {
+        const wrapper = this.nodeElements.get(nodeId);
+        if (!wrapper) return;
+        
+        const contentEl = wrapper.querySelector('.node-content');
+        const div = wrapper.querySelector('.node');
+        
+        if (contentEl) {
+            const errorHtml = `
+                <div class="error-content">
+                    <div class="error-icon">⚠️</div>
+                    <div class="error-title">${this.escapeHtml(errorInfo.title)}</div>
+                    <div class="error-description">${this.escapeHtml(errorInfo.description)}</div>
+                    <div class="error-actions">
+                        ${errorInfo.canRetry ? '<button class="error-retry-btn">🔄 Retry</button>' : ''}
+                        <button class="error-dismiss-btn">✕ Dismiss</button>
+                    </div>
+                </div>
+            `;
+            contentEl.innerHTML = errorHtml;
+            
+            // Add error class to node
+            if (div) div.classList.add('error-node');
+            
+            // Setup button handlers
+            const retryBtn = contentEl.querySelector('.error-retry-btn');
+            const dismissBtn = contentEl.querySelector('.error-dismiss-btn');
+            
+            if (retryBtn) {
+                retryBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (this.onNodeRetry) this.onNodeRetry(nodeId);
+                });
+            }
+            
+            if (dismissBtn) {
+                dismissBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (this.onNodeDismissError) this.onNodeDismissError(nodeId);
+                });
+            }
+        }
+    }
+    
+    /**
+     * Clear error state on a node
+     */
+    clearNodeError(nodeId) {
+        const wrapper = this.nodeElements.get(nodeId);
+        if (!wrapper) return;
+        
+        const div = wrapper.querySelector('.node');
+        if (div) div.classList.remove('error-node');
     }
 
     /**
