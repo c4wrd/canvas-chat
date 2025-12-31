@@ -357,9 +357,8 @@ class App {
         this.searchSelectedIndex = 0;
         this.slashCommandMenu = new SlashCommandMenu();
         
-        // Streaming state
-        this.streamingNodeId = null;
-        this.streamingContext = null;  // Store context for continue functionality
+        // Streaming state - Map of nodeId -> { abortController, context }
+        this.streamingNodes = new Map();
         
         // Retry contexts for error recovery
         this.retryContexts = new Map();  // nodeId -> { type, ...context }
@@ -1025,13 +1024,20 @@ class App {
         const context = this.graph.resolveContext([humanNode.id]);
         const messages = context.map(m => ({ role: m.role, content: m.content }));
         
+        // Create AbortController for this stream
+        const abortController = new AbortController();
+        
         // Track streaming state for stop/continue functionality
-        this.streamingNodeId = aiNode.id;
-        this.streamingContext = { messages, model, humanNodeId: humanNode.id };
+        this.streamingNodes.set(aiNode.id, { 
+            abortController, 
+            context: { messages, model, humanNodeId: humanNode.id }
+        });
         this.canvas.showStopButton(aiNode.id);
         
         // Stream response
-        await chat.sendMessage(
+        this.streamWithAbort(
+            aiNode.id,
+            abortController,
             messages,
             model,
             // onChunk
@@ -1041,7 +1047,7 @@ class App {
             },
             // onDone
             (fullContent) => {
-                this.streamingNodeId = null;
+                this.streamingNodes.delete(aiNode.id);
                 this.canvas.hideStopButton(aiNode.id);
                 this.canvas.updateNodeContent(aiNode.id, fullContent, false);
                 this.graph.updateNode(aiNode.id, { content: fullContent });
@@ -1052,7 +1058,7 @@ class App {
             },
             // onError
             (err) => {
-                this.streamingNodeId = null;
+                this.streamingNodes.delete(aiNode.id);
                 this.canvas.hideStopButton(aiNode.id);
                 
                 // Format and display user-friendly error
@@ -2168,7 +2174,20 @@ class App {
                 const context = this.graph.resolveContext([humanNode.id]);
                 const messages = context.map(m => ({ role: m.role, content: m.content }));
                 
-                await chat.sendMessage(
+                // Create AbortController for this stream
+                const abortController = new AbortController();
+                
+                // Track streaming state for stop/continue functionality
+                this.streamingNodes.set(aiNode.id, {
+                    abortController,
+                    context: { messages, model, humanNodeId: humanNode.id }
+                });
+                this.canvas.showStopButton(aiNode.id);
+                
+                // Stream response using streamWithAbort
+                this.streamWithAbort(
+                    aiNode.id,
+                    abortController,
                     messages,
                     model,
                     // onChunk
@@ -2178,6 +2197,8 @@ class App {
                     },
                     // onDone
                     (fullContent) => {
+                        this.streamingNodes.delete(aiNode.id);
+                        this.canvas.hideStopButton(aiNode.id);
                         this.canvas.updateNodeContent(aiNode.id, fullContent, false);
                         this.graph.updateNode(aiNode.id, { content: fullContent });
                         this.saveSession();
@@ -2185,10 +2206,17 @@ class App {
                     },
                     // onError
                     (err) => {
-                        const errorMsg = `Error: ${err.message}`;
-                        this.canvas.updateNodeContent(aiNode.id, errorMsg, false);
-                        this.graph.updateNode(aiNode.id, { content: errorMsg });
-                        this.saveSession();
+                        this.streamingNodes.delete(aiNode.id);
+                        this.canvas.hideStopButton(aiNode.id);
+                        
+                        // Format and display user-friendly error
+                        const errorInfo = formatUserError(err);
+                        this.showNodeError(aiNode.id, errorInfo, {
+                            type: 'chat',
+                            messages,
+                            model,
+                            humanNodeId: humanNode.id
+                        });
                     }
                 );
             } else {
@@ -2529,10 +2557,11 @@ class App {
      * Handle stopping generation for a streaming node
      */
     handleNodeStopGeneration(nodeId) {
-        if (this.streamingNodeId !== nodeId) return;
+        const streamingState = this.streamingNodes.get(nodeId);
+        if (!streamingState) return;
         
-        // Abort the current request
-        chat.abort();
+        // Abort the request
+        streamingState.abortController.abort();
         
         // Get current content and add stopped indicator
         const node = this.graph.getNode(nodeId);
@@ -2542,10 +2571,16 @@ class App {
             this.graph.updateNode(nodeId, { content: stoppedContent });
         }
         
-        // Update UI state
+        // Update UI state - keep context for continue but mark as stopped
         this.canvas.hideStopButton(nodeId);
         this.canvas.showContinueButton(nodeId);
-        this.streamingNodeId = null;
+        
+        // Store context for continue, then remove from streaming
+        this.streamingNodes.set(nodeId, { 
+            ...streamingState, 
+            abortController: null,
+            stopped: true 
+        });
         
         this.saveSession();
     }
@@ -2555,7 +2590,8 @@ class App {
      */
     async handleNodeContinueGeneration(nodeId) {
         const node = this.graph.getNode(nodeId);
-        if (!node || !this.streamingContext) return;
+        const streamingState = this.streamingNodes.get(nodeId);
+        if (!node || !streamingState?.context) return;
         
         // Hide continue button, show stop button
         this.canvas.hideContinueButton(nodeId);
@@ -2566,18 +2602,24 @@ class App {
         
         // Build messages with current partial response
         const messages = [
-            ...this.streamingContext.messages,
+            ...streamingState.context.messages,
             { role: 'assistant', content: currentContent },
             { role: 'user', content: 'Please continue your response from where you left off.' }
         ];
         
-        // Track streaming state
-        this.streamingNodeId = nodeId;
+        // Create new AbortController for the continuation
+        const abortController = new AbortController();
+        this.streamingNodes.set(nodeId, {
+            abortController,
+            context: streamingState.context
+        });
         
         // Continue streaming
-        await chat.sendMessage(
+        this.streamWithAbort(
+            nodeId,
+            abortController,
             messages,
-            this.streamingContext.model,
+            streamingState.context.model,
             // onChunk
             (chunk, fullContent) => {
                 // Append to existing content
@@ -2587,7 +2629,7 @@ class App {
             },
             // onDone
             (fullContent) => {
-                this.streamingNodeId = null;
+                this.streamingNodes.delete(nodeId);
                 this.canvas.hideStopButton(nodeId);
                 const combinedContent = currentContent + fullContent;
                 this.canvas.updateNodeContent(nodeId, combinedContent, false);
@@ -2599,7 +2641,7 @@ class App {
             },
             // onError
             (err) => {
-                this.streamingNodeId = null;
+                this.streamingNodes.delete(nodeId);
                 this.canvas.hideStopButton(nodeId);
                 const errorContent = currentContent + `\n\n*Error continuing: ${err.message}*`;
                 this.canvas.updateNodeContent(nodeId, errorContent, false);
@@ -2607,6 +2649,72 @@ class App {
                 this.saveSession();
             }
         );
+    }
+    
+    /**
+     * Helper method to stream LLM responses with abort support
+     * Wraps the streaming call with proper error handling for AbortController
+     * @param {string} nodeId - The node ID being streamed to
+     * @param {AbortController} abortController - Controller to abort the request
+     * @param {Array} messages - Array of {role, content} messages
+     * @param {string} model - Model ID
+     * @param {Function} onChunk - Callback for each chunk (chunk, fullContent)
+     * @param {Function} onDone - Callback when complete (normalizedContent)
+     * @param {Function} onError - Callback on error (err)
+     */
+    async streamWithAbort(nodeId, abortController, messages, model, onChunk, onDone, onError) {
+        const apiKey = chat.getApiKeyForModel(model);
+        const baseUrl = chat.getBaseUrl();
+        
+        try {
+            const requestBody = {
+                messages,
+                model,
+                api_key: apiKey,
+                temperature: 0.7,
+            };
+            
+            if (baseUrl) {
+                requestBody.base_url = baseUrl;
+            }
+            
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody),
+                signal: abortController.signal,
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error: ${response.status}`);
+            }
+            
+            let fullContent = '';
+            
+            await SSE.readSSEStream(response, {
+                onEvent: (eventType, data) => {
+                    if (eventType === 'message' && data) {
+                        fullContent += data;
+                        onChunk(data, fullContent);
+                    }
+                },
+                onDone: () => {
+                    onDone(SSE.normalizeText(fullContent));
+                },
+                onError: (err) => {
+                    throw err;
+                }
+            });
+            
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                console.log(`Stream aborted for node ${nodeId}`);
+                return;
+            }
+            
+            console.error('Stream error:', err);
+            onError(err);
+        }
     }
     
     /**
@@ -2631,28 +2739,35 @@ class App {
      * Handle retry for a failed node operation
      */
     async handleNodeRetry(nodeId) {
-        const context = this.retryContexts.get(nodeId);
-        if (!context) return;
+        const retryContext = this.retryContexts.get(nodeId);
+        if (!retryContext) return;
         
         // Clear error state
         this.canvas.clearNodeError(nodeId);
         this.retryContexts.delete(nodeId);
         
         // Re-execute based on context type
-        if (context.type === 'chat') {
+        if (retryContext.type === 'chat') {
             // Clear the node content and show loading state
             this.canvas.updateNodeContent(nodeId, '', true);
             this.graph.updateNode(nodeId, { content: '' });
             
-            // Track streaming state
-            this.streamingNodeId = nodeId;
-            this.streamingContext = context;
+            // Create AbortController for this retry
+            const abortController = new AbortController();
+            
+            // Track streaming state with new pattern
+            this.streamingNodes.set(nodeId, {
+                abortController,
+                context: { messages: retryContext.messages, model: retryContext.model }
+            });
             this.canvas.showStopButton(nodeId);
             
-            // Retry the chat request
-            await chat.sendMessage(
-                context.messages,
-                context.model,
+            // Retry the chat request using streamWithAbort
+            this.streamWithAbort(
+                nodeId,
+                abortController,
+                retryContext.messages,
+                retryContext.model,
                 // onChunk
                 (chunk, fullContent) => {
                     this.canvas.updateNodeContent(nodeId, fullContent, true);
@@ -2660,7 +2775,7 @@ class App {
                 },
                 // onDone
                 (fullContent) => {
-                    this.streamingNodeId = null;
+                    this.streamingNodes.delete(nodeId);
                     this.canvas.hideStopButton(nodeId);
                     this.canvas.updateNodeContent(nodeId, fullContent, false);
                     this.graph.updateNode(nodeId, { content: fullContent });
@@ -2669,10 +2784,10 @@ class App {
                 },
                 // onError
                 (err) => {
-                    this.streamingNodeId = null;
+                    this.streamingNodes.delete(nodeId);
                     this.canvas.hideStopButton(nodeId);
                     const errorInfo = formatUserError(err);
-                    this.showNodeError(nodeId, errorInfo, context);
+                    this.showNodeError(nodeId, errorInfo, retryContext);
                 }
             );
         }

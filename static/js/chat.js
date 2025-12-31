@@ -6,8 +6,6 @@ class Chat {
     constructor() {
         this.currentModel = null;
         this.models = [];
-        this.isStreaming = false;
-        this.abortController = null;
     }
 
     /**
@@ -78,14 +76,10 @@ class Chat {
      * @param {Function} onChunk - Callback for each chunk
      * @param {Function} onDone - Callback when complete
      * @param {Function} onError - Callback on error
+     * @returns {AbortController} - Controller to abort the request
      */
     async sendMessage(messages, model, onChunk, onDone, onError) {
-        if (this.isStreaming) {
-            this.abort();
-        }
-
-        this.isStreaming = true;
-        this.abortController = new AbortController();
+        const abortController = new AbortController();
 
         const apiKey = this.getApiKeyForModel(model);
         const baseUrl = this.getBaseUrl();
@@ -108,7 +102,7 @@ class Chat {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify(requestBody),
-                signal: this.abortController.signal,
+                signal: abortController.signal,
             });
 
             if (!response.ok) {
@@ -125,18 +119,14 @@ class Chat {
                     }
                 },
                 onDone: () => {
-                    this.isStreaming = false;
                     onDone(SSE.normalizeText(fullContent));
                 },
                 onError: (err) => {
-                    this.isStreaming = false;
                     throw err;
                 }
             });
 
         } catch (err) {
-            this.isStreaming = false;
-            
             if (err.name === 'AbortError') {
                 console.log('Request aborted');
                 return;
@@ -145,6 +135,8 @@ class Chat {
             console.error('Chat error:', err);
             onError(err);
         }
+        
+        return abortController;
     }
 
     /**
@@ -202,17 +194,6 @@ class Chat {
         }
         // Fallback: rough estimate
         return Math.ceil(text.length / 4);
-    }
-
-    /**
-     * Abort current streaming request
-     */
-    abort() {
-        if (this.abortController) {
-            this.abortController.abort();
-            this.abortController = null;
-        }
-        this.isStreaming = false;
     }
 }
 
