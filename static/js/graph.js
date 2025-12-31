@@ -17,7 +17,8 @@ const NodeType = {
     MATRIX: 'matrix',      // Cross-product evaluation table
     CELL: 'cell',          // Pinned cell from a matrix
     ROW: 'row',            // Extracted row from a matrix
-    COLUMN: 'column'       // Extracted column from a matrix
+    COLUMN: 'column',      // Extracted column from a matrix
+    FETCH_RESULT: 'fetch_result' // Fetched content from URL (via Exa)
 };
 
 /**

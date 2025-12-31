@@ -1985,7 +1985,8 @@ class Canvas {
             [NodeType.MATRIX]: 'Matrix',
             [NodeType.CELL]: 'Cell',
             [NodeType.ROW]: 'Row',
-            [NodeType.COLUMN]: 'Column'
+            [NodeType.COLUMN]: 'Column',
+            [NodeType.FETCH_RESULT]: 'Fetched Content'
         };
         return labels[type] || type;
     }
@@ -2003,7 +2004,8 @@ class Canvas {
             [NodeType.MATRIX]: '📊',
             [NodeType.CELL]: '📦',
             [NodeType.ROW]: '↔️',
-            [NodeType.COLUMN]: '↕️'
+            [NodeType.COLUMN]: '↕️',
+            [NodeType.FETCH_RESULT]: '📄'
         };
         return icons[type] || '📄';
     }

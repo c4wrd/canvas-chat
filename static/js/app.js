@@ -2260,7 +2260,8 @@ class App {
     }
 
     /**
-     * Handle fetching full content from a Reference node URL and summarizing it
+     * Handle fetching full content from a Reference node URL and summarizing it.
+     * Creates two nodes: FETCH_RESULT (raw content) → SUMMARY (AI summary)
      */
     async handleNodeFetchSummarize(nodeId) {
         const node = this.graph.getNode(nodeId);
@@ -2283,24 +2284,31 @@ class App {
         
         const model = this.modelPicker.value;
         
-        // Create summary node
-        const summaryNode = createNode(NodeType.SUMMARY, 'Fetching content...', {
+        // Create FETCH_RESULT node for the raw fetched content
+        const fetchResultNode = createNode(NodeType.FETCH_RESULT, 'Fetching content...', {
             position: {
-                x: node.position.x + 400,
+                x: node.position.x + 450,
                 y: node.position.y
             }
         });
         
-        this.graph.addNode(summaryNode);
-        this.canvas.renderNode(summaryNode);
+        this.graph.addNode(fetchResultNode);
+        this.canvas.renderNode(fetchResultNode);
         
-        const edge = createEdge(nodeId, summaryNode.id, EdgeType.REFERENCE);
-        this.graph.addEdge(edge);
-        this.canvas.renderEdge(edge, node.position, summaryNode.position);
+        const fetchEdge = createEdge(nodeId, fetchResultNode.id, EdgeType.REFERENCE);
+        this.graph.addEdge(fetchEdge);
+        this.canvas.renderEdge(fetchEdge, node.position, fetchResultNode.position);
+        
+        // Smoothly pan to the fetch result node
+        this.canvas.centerOnAnimated(
+            fetchResultNode.position.x + 200,
+            fetchResultNode.position.y + 100,
+            300
+        );
         
         try {
             // Fetch content from URL via Exa
-            this.canvas.updateNodeContent(summaryNode.id, 'Fetching content from URL...', true);
+            this.canvas.updateNodeContent(fetchResultNode.id, 'Fetching content from URL...', true);
             
             const response = await fetch('/api/exa/get-contents', {
                 method: 'POST',
@@ -2322,9 +2330,34 @@ class App {
                 throw new Error('No text content found at this URL');
             }
             
-            // Now summarize the content with LLM
-            this.canvas.updateNodeContent(summaryNode.id, 'Summarizing content...', true);
+            // Update the FETCH_RESULT node with the raw content
+            const fetchedContent = `**[${contentData.title}](${url})**\n\n${contentData.text}`;
+            this.canvas.updateNodeContent(fetchResultNode.id, fetchedContent, false);
+            this.graph.updateNode(fetchResultNode.id, { content: fetchedContent });
             
+            // Create SUMMARY node for the AI summary
+            const summaryNode = createNode(NodeType.SUMMARY, 'Summarizing content...', {
+                position: {
+                    x: fetchResultNode.position.x + 450,
+                    y: fetchResultNode.position.y
+                }
+            });
+            
+            this.graph.addNode(summaryNode);
+            this.canvas.renderNode(summaryNode);
+            
+            const summaryEdge = createEdge(fetchResultNode.id, summaryNode.id, EdgeType.REFERENCE);
+            this.graph.addEdge(summaryEdge);
+            this.canvas.renderEdge(summaryEdge, fetchResultNode.position, summaryNode.position);
+            
+            // Smoothly pan to the summary node
+            this.canvas.centerOnAnimated(
+                summaryNode.position.x + 200,
+                summaryNode.position.y + 100,
+                300
+            );
+            
+            // Now summarize the content with LLM
             const messages = [
                 { role: 'user', content: `Please provide a comprehensive summary of the following article:\n\n**${contentData.title}**\n\n${contentData.text}` }
             ];
@@ -2339,7 +2372,7 @@ class App {
             this.saveSession();
             
         } catch (err) {
-            this.canvas.updateNodeContent(summaryNode.id, `Error: ${err.message}`, false);
+            this.canvas.updateNodeContent(fetchResultNode.id, `Error: ${err.message}`, false);
             this.graph.updateNode(summaryNode.id, { content: `Error: ${err.message}` });
         }
     }
