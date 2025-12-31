@@ -606,6 +606,211 @@ test('truncate: handles null/undefined', () => {
 });
 
 // ============================================================
+// resolveOverlaps tests
+// ============================================================
+
+/**
+ * Calculate overlap between two nodes.
+ * Copy of function from graph.js for testing
+ */
+function getOverlap(nodeA, nodeB, padding = 40) {
+    const getNodeSize = (node) => ({
+        width: node.width || 420,
+        height: node.height || 220
+    });
+    
+    const sizeA = getNodeSize(nodeA);
+    const sizeB = getNodeSize(nodeB);
+    
+    const aLeft = nodeA.position.x;
+    const aRight = nodeA.position.x + sizeA.width + padding;
+    const aTop = nodeA.position.y;
+    const aBottom = nodeA.position.y + sizeA.height + padding;
+    
+    const bLeft = nodeB.position.x;
+    const bRight = nodeB.position.x + sizeB.width + padding;
+    const bTop = nodeB.position.y;
+    const bBottom = nodeB.position.y + sizeB.height + padding;
+    
+    const overlapX = Math.min(aRight, bRight) - Math.max(aLeft, bLeft);
+    const overlapY = Math.min(aBottom, bBottom) - Math.max(aTop, bTop);
+    
+    if (overlapX > 0 && overlapY > 0) {
+        return { overlapX, overlapY };
+    }
+    return { overlapX: 0, overlapY: 0 };
+}
+
+/**
+ * Resolve overlapping nodes.
+ * Copy of function from graph.js for testing
+ */
+function resolveOverlaps(nodes, padding = 40, maxIterations = 50) {
+    const getNodeSize = (node) => ({
+        width: node.width || 420,
+        height: node.height || 220
+    });
+    
+    for (let iter = 0; iter < maxIterations; iter++) {
+        let hasOverlap = false;
+        
+        for (let i = 0; i < nodes.length; i++) {
+            for (let j = i + 1; j < nodes.length; j++) {
+                const nodeA = nodes[i];
+                const nodeB = nodes[j];
+                
+                const { overlapX, overlapY } = getOverlap(nodeA, nodeB, padding);
+                
+                if (overlapX > 0 && overlapY > 0) {
+                    hasOverlap = true;
+                    
+                    const sizeA = getNodeSize(nodeA);
+                    const sizeB = getNodeSize(nodeB);
+                    
+                    const centerAx = nodeA.position.x + sizeA.width / 2;
+                    const centerAy = nodeA.position.y + sizeA.height / 2;
+                    const centerBx = nodeB.position.x + sizeB.width / 2;
+                    const centerBy = nodeB.position.y + sizeB.height / 2;
+                    
+                    if (overlapX < overlapY) {
+                        const pushAmount = (overlapX / 2) + 1;
+                        if (centerBx >= centerAx) {
+                            nodeA.position.x -= pushAmount;
+                            nodeB.position.x += pushAmount;
+                        } else {
+                            nodeA.position.x += pushAmount;
+                            nodeB.position.x -= pushAmount;
+                        }
+                    } else {
+                        const pushAmount = (overlapY / 2) + 1;
+                        if (centerBy >= centerAy) {
+                            nodeA.position.y -= pushAmount;
+                            nodeB.position.y += pushAmount;
+                        } else {
+                            nodeA.position.y += pushAmount;
+                            nodeB.position.y -= pushAmount;
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (!hasOverlap) break;
+    }
+}
+
+/**
+ * Check if any nodes in the array overlap
+ */
+function hasAnyOverlap(nodes, padding = 40) {
+    for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+            const { overlapX, overlapY } = getOverlap(nodes[i], nodes[j], padding);
+            if (overlapX > 0 && overlapY > 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+test('getOverlap: no overlap when far apart', () => {
+    const nodeA = { position: { x: 0, y: 0 }, width: 100, height: 100 };
+    const nodeB = { position: { x: 500, y: 500 }, width: 100, height: 100 };
+    
+    const { overlapX, overlapY } = getOverlap(nodeA, nodeB);
+    assertEqual(overlapX, 0);
+    assertEqual(overlapY, 0);
+});
+
+test('getOverlap: calculates overlap correctly', () => {
+    const nodeA = { position: { x: 0, y: 0 }, width: 100, height: 100 };
+    const nodeB = { position: { x: 50, y: 50 }, width: 100, height: 100 };
+    const padding = 40;
+    
+    const { overlapX, overlapY } = getOverlap(nodeA, nodeB, padding);
+    // nodeA right edge with padding: 0 + 100 + 40 = 140
+    // nodeB left edge: 50
+    // overlapX = min(140, 190) - max(0, 50) = 140 - 50 = 90
+    assertEqual(overlapX, 90);
+    assertEqual(overlapY, 90);
+});
+
+test('resolveOverlaps: separates two overlapping nodes', () => {
+    const nodes = [
+        { position: { x: 100, y: 100 }, width: 200, height: 150 },
+        { position: { x: 150, y: 120 }, width: 200, height: 150 }
+    ];
+    
+    assertTrue(hasAnyOverlap(nodes), 'Nodes should overlap initially');
+    
+    resolveOverlaps(nodes);
+    
+    assertFalse(hasAnyOverlap(nodes), 'Nodes should not overlap after resolution');
+});
+
+test('resolveOverlaps: handles large nodes (640x480)', () => {
+    // This is the bug case - large scrollable nodes were not being separated
+    const nodes = [
+        { position: { x: 100, y: 100 }, width: 640, height: 480 },
+        { position: { x: 200, y: 150 }, width: 640, height: 480 }
+    ];
+    
+    assertTrue(hasAnyOverlap(nodes), 'Large nodes should overlap initially');
+    
+    resolveOverlaps(nodes);
+    
+    assertFalse(hasAnyOverlap(nodes), 'Large nodes should not overlap after resolution');
+});
+
+test('resolveOverlaps: handles completely overlapping nodes', () => {
+    // Nodes at exact same position
+    const nodes = [
+        { position: { x: 100, y: 100 }, width: 300, height: 200 },
+        { position: { x: 100, y: 100 }, width: 300, height: 200 }
+    ];
+    
+    resolveOverlaps(nodes);
+    
+    assertFalse(hasAnyOverlap(nodes), 'Identical position nodes should be separated');
+});
+
+test('resolveOverlaps: separates multiple overlapping nodes', () => {
+    const nodes = [
+        { position: { x: 100, y: 100 }, width: 200, height: 150 },
+        { position: { x: 150, y: 120 }, width: 200, height: 150 },
+        { position: { x: 180, y: 140 }, width: 200, height: 150 },
+        { position: { x: 120, y: 180 }, width: 200, height: 150 }
+    ];
+    
+    assertTrue(hasAnyOverlap(nodes), 'Multiple nodes should overlap initially');
+    
+    resolveOverlaps(nodes);
+    
+    assertFalse(hasAnyOverlap(nodes), 'All nodes should be separated after resolution');
+});
+
+test('resolveOverlaps: preserves non-overlapping nodes', () => {
+    const nodes = [
+        { position: { x: 0, y: 0 }, width: 100, height: 100 },
+        { position: { x: 500, y: 0 }, width: 100, height: 100 },
+        { position: { x: 0, y: 500 }, width: 100, height: 100 }
+    ];
+    
+    const originalPositions = nodes.map(n => ({ x: n.position.x, y: n.position.y }));
+    
+    assertFalse(hasAnyOverlap(nodes), 'Nodes should not overlap initially');
+    
+    resolveOverlaps(nodes);
+    
+    // Positions should remain unchanged
+    for (let i = 0; i < nodes.length; i++) {
+        assertEqual(nodes[i].position.x, originalPositions[i].x);
+        assertEqual(nodes[i].position.y, originalPositions[i].y);
+    }
+});
+
+// ============================================================
 // Concurrent State Management tests
 // ============================================================
 

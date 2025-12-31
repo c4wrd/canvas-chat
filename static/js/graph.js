@@ -1039,7 +1039,12 @@ class Graph {
             };
         };
         
-        const checkOverlap = (nodeA, nodeB) => {
+        /**
+         * Calculate overlap between two nodes.
+         * Returns { overlapX, overlapY } - the amount of overlap in each dimension.
+         * If no overlap, returns { overlapX: 0, overlapY: 0 }.
+         */
+        const getOverlap = (nodeA, nodeB) => {
             const sizeA = getNodeSize(nodeA);
             const sizeB = getNodeSize(nodeB);
             
@@ -1053,7 +1058,15 @@ class Graph {
             const bTop = nodeB.position.y;
             const bBottom = nodeB.position.y + sizeB.height + PADDING;
             
-            return !(aRight < bLeft || aLeft > bRight || aBottom < bTop || aTop > bBottom);
+            // Calculate overlap in each dimension
+            const overlapX = Math.min(aRight, bRight) - Math.max(aLeft, bLeft);
+            const overlapY = Math.min(aBottom, bBottom) - Math.max(aTop, bTop);
+            
+            // Only overlapping if both dimensions overlap
+            if (overlapX > 0 && overlapY > 0) {
+                return { overlapX, overlapY };
+            }
+            return { overlapX: 0, overlapY: 0 };
         };
         
         for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
@@ -1064,7 +1077,9 @@ class Graph {
                     const nodeA = nodes[i];
                     const nodeB = nodes[j];
                     
-                    if (checkOverlap(nodeA, nodeB)) {
+                    const { overlapX, overlapY } = getOverlap(nodeA, nodeB);
+                    
+                    if (overlapX > 0 && overlapY > 0) {
                         hasOverlap = true;
                         
                         const sizeA = getNodeSize(nodeA);
@@ -1076,21 +1091,29 @@ class Graph {
                         const centerBx = nodeB.position.x + sizeB.width / 2;
                         const centerBy = nodeB.position.y + sizeB.height / 2;
                         
-                        // Direction to push apart
-                        let dx = centerBx - centerAx;
-                        let dy = centerBy - centerAy;
-                        const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-                        
-                        // Normalize
-                        dx /= distance;
-                        dy /= distance;
-                        
-                        // Push apart by a small amount
-                        const pushAmount = 20;
-                        nodeA.position.x -= dx * pushAmount;
-                        nodeA.position.y -= dy * pushAmount;
-                        nodeB.position.x += dx * pushAmount;
-                        nodeB.position.y += dy * pushAmount;
+                        // Push apart along the axis of minimum overlap (more efficient)
+                        // This avoids diagonal pushes that may not resolve the overlap
+                        if (overlapX < overlapY) {
+                            // Push horizontally
+                            const pushAmount = (overlapX / 2) + 1; // +1 to ensure separation
+                            if (centerBx >= centerAx) {
+                                nodeA.position.x -= pushAmount;
+                                nodeB.position.x += pushAmount;
+                            } else {
+                                nodeA.position.x += pushAmount;
+                                nodeB.position.x -= pushAmount;
+                            }
+                        } else {
+                            // Push vertically
+                            const pushAmount = (overlapY / 2) + 1;
+                            if (centerBy >= centerAy) {
+                                nodeA.position.y -= pushAmount;
+                                nodeB.position.y += pushAmount;
+                            } else {
+                                nodeA.position.y += pushAmount;
+                                nodeB.position.y -= pushAmount;
+                            }
+                        }
                     }
                 }
             }
