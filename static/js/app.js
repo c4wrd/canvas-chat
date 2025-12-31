@@ -835,6 +835,15 @@ class App {
                     this.chatInput.focus();
                 }
             }
+            
+            // 'c' to copy selected node content
+            if (e.key === 'c' && !e.target.matches('input, textarea') && !(e.metaKey || e.ctrlKey)) {
+                const selectedNodeIds = this.canvas.getSelectedNodeIds();
+                if (selectedNodeIds.length === 1) {
+                    e.preventDefault();
+                    this.copyNodeContent(selectedNodeIds[0]);
+                }
+            }
         });
         
         // Search button
@@ -2680,6 +2689,23 @@ class App {
         this.canvas.highlightTextInNode(parentNode.id, excerptText);
     }
 
+    async copyNodeContent(nodeId) {
+        const node = this.graph.getNode(nodeId);
+        if (!node) return;
+        
+        // For matrix nodes, copy the context; for others, copy content
+        const textToCopy = node.type === NodeType.MATRIX ? node.context : node.content;
+        if (!textToCopy) return;
+        
+        try {
+            await navigator.clipboard.writeText(textToCopy);
+            // Show brief visual feedback via the canvas
+            this.canvas.showCopyFeedback(nodeId);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+        }
+    }
+    
     deleteSelectedNodes() {
         const selectedIds = this.canvas.getSelectedNodeIds();
         if (selectedIds.length === 0) return;

@@ -1354,6 +1354,22 @@ class Canvas {
         const div = wrapper.querySelector('.node');
         if (div) div.classList.remove('error-node');
     }
+    
+    /**
+     * Show brief copy feedback on a node
+     */
+    showCopyFeedback(nodeId) {
+        const wrapper = this.nodeElements.get(nodeId);
+        if (!wrapper) return;
+        
+        const div = wrapper.querySelector('.node');
+        if (div) {
+            div.classList.add('copy-flash');
+            setTimeout(() => {
+                div.classList.remove('copy-flash');
+            }, 300);
+        }
+    }
 
     /**
      * Remove a node from the canvas

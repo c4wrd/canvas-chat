@@ -378,6 +378,15 @@ html, body {
     outline-offset: 4px;
 }
 
+.node.copy-flash {
+    animation: copy-flash 0.3s ease;
+}
+
+@keyframes copy-flash {
+    0%, 100% { background-color: inherit; }
+    50% { background-color: var(--success); opacity: 0.8; }
+}
+
 .node.faded {
     opacity: 0.4;
     transition: opacity 0.2s ease;
