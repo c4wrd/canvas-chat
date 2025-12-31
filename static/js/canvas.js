@@ -460,9 +460,9 @@ class Canvas {
     }
 
     handleDoubleClick(e) {
-        // Double-click on empty space to fit content
+        // Double-click on empty space to fit content (with smooth animation)
         if (e.target === this.svg || e.target.closest('#edges-layer')) {
-            this.fitToContent();
+            this.fitToContentAnimated(400);
         }
     }
 
