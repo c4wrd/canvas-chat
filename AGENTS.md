@@ -85,6 +85,54 @@ if (selectedNodeIds.length > 0) {
 }
 ```
 
+### Concurrent operation state
+
+When multiple instances of an operation can run simultaneously, **never use global/singleton state**.
+Each instance must have its own isolated state.
+
+**The pattern:** Use `Map<instanceId, state>` instead of single variables.
+
+```javascript
+// WRONG: Global state - only one operation can be active
+this.streamingNodeId = nodeId;
+this.abortController = new AbortController();
+
+// Later, when second operation starts, it overwrites the first:
+this.streamingNodeId = anotherNodeId;  // First operation's state is lost!
+this.abortController = new AbortController();  // Can't abort first operation anymore
+
+// CORRECT: Per-instance state - many operations can run in parallel
+this.streamingNodes = new Map();  // In constructor
+
+// Each operation gets isolated state:
+this.streamingNodes.set(nodeId, {
+    abortController: new AbortController(),
+    context: { messages, model }
+});
+
+// Second operation doesn't affect the first:
+this.streamingNodes.set(anotherNodeId, {
+    abortController: new AbortController(),
+    context: { messages, model }
+});
+
+// Each can be controlled independently:
+this.streamingNodes.get(nodeId).abortController.abort();
+```
+
+**When to apply this pattern:**
+
+- LLM streaming responses (multiple nodes can generate simultaneously)
+- Async fetch operations that can overlap
+- Any cancellable operation where the user might trigger multiple instances
+
+**Cleanup:** Always remove entries from the Map when the operation completes or errors:
+
+```javascript
+// In onDone/onError callbacks:
+this.streamingNodes.delete(nodeId);
+```
+
 ### Node content updates
 
 Nodes have two text displays that must stay in sync:

@@ -606,6 +606,192 @@ test('truncate: handles null/undefined', () => {
 });
 
 // ============================================================
+// Concurrent State Management tests
+// ============================================================
+
+/**
+ * These tests validate the pattern for managing concurrent operations.
+ * When multiple operations can run in parallel, each needs its own
+ * isolated state. We use Map<instanceId, state> instead of single variables.
+ * 
+ * Anti-pattern: this.streamingNodeId = nodeId (overwritten by next operation)
+ * Pattern: this.streamingNodes.set(nodeId, { ... })
+ */
+
+// Simulates the WRONG approach - global state
+class BadConcurrentManager {
+    constructor() {
+        // Anti-pattern: single variables for concurrent operations
+        this.activeNodeId = null;
+        this.abortController = null;
+    }
+    
+    startOperation(nodeId) {
+        this.activeNodeId = nodeId;
+        this.abortController = { aborted: false, nodeId };
+        return this.abortController;
+    }
+    
+    stopOperation(nodeId) {
+        // BUG: Only works if nodeId matches the current activeNodeId
+        if (this.activeNodeId === nodeId && this.abortController) {
+            this.abortController.aborted = true;
+            return true;
+        }
+        return false;
+    }
+    
+    getActiveController(nodeId) {
+        return this.activeNodeId === nodeId ? this.abortController : null;
+    }
+}
+
+// Simulates the CORRECT approach - per-instance state
+class GoodConcurrentManager {
+    constructor() {
+        // Pattern: Map for per-instance state
+        this.activeOperations = new Map();
+    }
+    
+    startOperation(nodeId) {
+        const controller = { aborted: false, nodeId };
+        this.activeOperations.set(nodeId, { abortController: controller });
+        return controller;
+    }
+    
+    stopOperation(nodeId) {
+        const state = this.activeOperations.get(nodeId);
+        if (state) {
+            state.abortController.aborted = true;
+            return true;
+        }
+        return false;
+    }
+    
+    completeOperation(nodeId) {
+        this.activeOperations.delete(nodeId);
+    }
+    
+    getActiveController(nodeId) {
+        const state = this.activeOperations.get(nodeId);
+        return state ? state.abortController : null;
+    }
+    
+    getActiveCount() {
+        return this.activeOperations.size;
+    }
+}
+
+test('BadConcurrentManager: second operation overwrites first', () => {
+    const manager = new BadConcurrentManager();
+    
+    // Start first operation
+    const controller1 = manager.startOperation('node-1');
+    
+    // Start second operation - this OVERWRITES the first
+    const controller2 = manager.startOperation('node-2');
+    
+    // Try to stop the first operation - THIS FAILS!
+    const stopped = manager.stopOperation('node-1');
+    
+    assertFalse(stopped, 'Cannot stop first operation after second starts');
+    assertFalse(controller1.aborted, 'First controller was not aborted');
+    
+    // Can only control the second operation
+    assertTrue(manager.stopOperation('node-2'), 'Can stop second operation');
+    assertTrue(controller2.aborted, 'Second controller was aborted');
+});
+
+test('BadConcurrentManager: cannot get controller for overwritten operation', () => {
+    const manager = new BadConcurrentManager();
+    
+    manager.startOperation('node-1');
+    manager.startOperation('node-2');
+    
+    // First operation's controller is lost
+    assertNull(manager.getActiveController('node-1'));
+    
+    // Only second operation's controller is accessible
+    assertTrue(manager.getActiveController('node-2') !== null);
+});
+
+test('GoodConcurrentManager: multiple operations run independently', () => {
+    const manager = new GoodConcurrentManager();
+    
+    // Start multiple operations
+    const controller1 = manager.startOperation('node-1');
+    const controller2 = manager.startOperation('node-2');
+    const controller3 = manager.startOperation('node-3');
+    
+    assertEqual(manager.getActiveCount(), 3);
+    
+    // Each can be controlled independently
+    assertTrue(manager.stopOperation('node-1'), 'Can stop node-1');
+    assertTrue(controller1.aborted, 'node-1 controller aborted');
+    assertFalse(controller2.aborted, 'node-2 controller NOT aborted');
+    assertFalse(controller3.aborted, 'node-3 controller NOT aborted');
+    
+    // Stop another
+    assertTrue(manager.stopOperation('node-3'), 'Can stop node-3');
+    assertTrue(controller3.aborted, 'node-3 controller aborted');
+    assertFalse(controller2.aborted, 'node-2 STILL not aborted');
+});
+
+test('GoodConcurrentManager: can get controller for any active operation', () => {
+    const manager = new GoodConcurrentManager();
+    
+    manager.startOperation('node-1');
+    manager.startOperation('node-2');
+    
+    // Both controllers are accessible
+    assertTrue(manager.getActiveController('node-1') !== null);
+    assertTrue(manager.getActiveController('node-2') !== null);
+    
+    // Each is the correct one
+    assertEqual(manager.getActiveController('node-1').nodeId, 'node-1');
+    assertEqual(manager.getActiveController('node-2').nodeId, 'node-2');
+});
+
+test('GoodConcurrentManager: cleanup removes only completed operation', () => {
+    const manager = new GoodConcurrentManager();
+    
+    manager.startOperation('node-1');
+    manager.startOperation('node-2');
+    
+    assertEqual(manager.getActiveCount(), 2);
+    
+    // Complete one operation
+    manager.completeOperation('node-1');
+    
+    assertEqual(manager.getActiveCount(), 1);
+    assertNull(manager.getActiveController('node-1'));
+    assertTrue(manager.getActiveController('node-2') !== null);
+});
+
+test('GoodConcurrentManager: stopping non-existent operation returns false', () => {
+    const manager = new GoodConcurrentManager();
+    
+    assertFalse(manager.stopOperation('non-existent'));
+});
+
+test('GoodConcurrentManager: same node can be restarted after completion', () => {
+    const manager = new GoodConcurrentManager();
+    
+    // Start and complete an operation
+    const controller1 = manager.startOperation('node-1');
+    manager.completeOperation('node-1');
+    
+    // Start a new operation on the same node
+    const controller2 = manager.startOperation('node-1');
+    
+    // They are different controllers
+    assertTrue(controller1 !== controller2, 'New controller is different instance');
+    
+    // Only the new one is active
+    assertEqual(manager.getActiveController('node-1'), controller2);
+});
+
+// ============================================================
 // Summary
 // ============================================================
 
