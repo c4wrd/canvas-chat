@@ -2932,84 +2932,89 @@ class App {
         const refNode = parents.find(p => p.type === NodeType.REFERENCE);
         const url = refNode?.url || 'the fetched content';
         
-        // Create new SUMMARY node
-        const summaryNode = {
-            id: this.generateId(),
-            type: NodeType.SUMMARY,
-            content: '',
+        const model = this.modelPicker.value;
+        const apiKey = chat.getApiKeyForModel(model);
+        
+        if (!apiKey) {
+            alert('Please set an API key for the selected model in Settings.');
+            return;
+        }
+        
+        // Create new SUMMARY node using createNode for proper defaults
+        const summaryNode = createNode(NodeType.SUMMARY, '', {
             position: {
                 x: fetchNode.position.x + 50,
                 y: fetchNode.position.y + (fetchNode.height || 200) + 50
             },
-            createdAt: Date.now()
-        };
+            model: model.split('/').pop()
+        });
         
         this.graph.addNode(summaryNode);
-        const edge = { source: nodeId, target: summaryNode.id };
+        const edge = createEdge(nodeId, summaryNode.id, EdgeType.REFERENCE);
         this.graph.addEdge(edge);
         
         this.canvas.renderNode(summaryNode);
         this.canvas.renderEdge(edge, fetchNode.position, summaryNode.position);
         
         // Pan to new node
-        this.canvas.panToNodeAnimated(summaryNode.id, 300);
+        this.canvas.centerOnAnimated(
+            summaryNode.position.x + 200,
+            summaryNode.position.y + 100,
+            300
+        );
         
         // Select the new node
+        this.canvas.clearSelection();
         this.canvas.selectNode(summaryNode.id);
         
-        // Stream summary from LLM
-        const model = this.modelPicker.value;
-        const apiKey = chat.getApiKeyForModel(model);
+        // Build messages for summarization
+        const messages = [
+            { role: 'user', content: `Please summarize the following content from ${url}:\n\n${fetchNode.content}` }
+        ];
         
-        if (!apiKey) {
-            summaryNode.content = '*Error: No API key configured for the selected model.*';
-            this.canvas.updateNodeContent(summaryNode.id, this.canvas.renderMarkdown(summaryNode.content));
-            this.saveSession();
-            return;
-        }
+        // Create AbortController for this stream
+        const abortController = new AbortController();
         
-        const systemPrompt = `You are a helpful assistant that summarizes content concisely. 
-Focus on the key points and main ideas. Use markdown formatting.`;
+        // Track streaming state
+        this.streamingNodes.set(summaryNode.id, {
+            abortController,
+            context: { messages, model }
+        });
+        this.canvas.showStopButton(summaryNode.id);
         
-        const userPrompt = `Please summarize the following content from ${url}:
-
-${fetchNode.content}`;
-        
-        try {
-            // Show streaming indicator
-            this.canvas.setNodeStreaming(summaryNode.id, true);
-            
-            let fullContent = '';
-            
-            await chat.streamChat(
-                [{ role: 'user', content: userPrompt }],
-                model,
-                apiKey,
-                (chunk) => {
-                    fullContent += chunk;
-                    summaryNode.content = fullContent;
-                    this.canvas.updateNodeContent(summaryNode.id, this.canvas.renderMarkdown(fullContent));
-                },
-                systemPrompt
-            );
-            
-            // Done streaming
-            this.canvas.setNodeStreaming(summaryNode.id, false);
-            summaryNode.model = model;
-            
-            // Update edges after content settles
-            requestAnimationFrame(() => {
-                this.canvas.updateEdgesForNode(summaryNode.id, summaryNode.position);
-            });
-            
-        } catch (error) {
-            console.error('Re-summarize error:', error);
-            summaryNode.content = `*Error generating summary: ${error.message}*`;
-            this.canvas.updateNodeContent(summaryNode.id, this.canvas.renderMarkdown(summaryNode.content));
-            this.canvas.setNodeStreaming(summaryNode.id, false);
-        }
+        // Stream the summary
+        this.streamWithAbort(
+            summaryNode.id,
+            abortController,
+            messages,
+            model,
+            // onChunk
+            (chunk, fullContent) => {
+                this.canvas.updateNodeContent(summaryNode.id, fullContent, true);
+                this.graph.updateNode(summaryNode.id, { content: fullContent });
+            },
+            // onDone
+            (fullContent) => {
+                this.streamingNodes.delete(summaryNode.id);
+                this.canvas.hideStopButton(summaryNode.id);
+                this.canvas.updateNodeContent(summaryNode.id, fullContent, false);
+                this.graph.updateNode(summaryNode.id, { content: fullContent });
+                this.saveSession();
+                this.generateNodeSummary(summaryNode.id);
+            },
+            // onError
+            (err) => {
+                this.streamingNodes.delete(summaryNode.id);
+                this.canvas.hideStopButton(summaryNode.id);
+                const errorContent = `*Error generating summary: ${err.message}*`;
+                this.canvas.updateNodeContent(summaryNode.id, errorContent, false);
+                this.graph.updateNode(summaryNode.id, { content: errorContent });
+                this.saveSession();
+            }
+        );
         
         this.saveSession();
+        this.updateEmptyState();
     }
     
     /**

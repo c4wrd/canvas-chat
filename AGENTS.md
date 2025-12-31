@@ -224,6 +224,54 @@ Common issues to watch for:
 - Variable name collisions (e.g., reusing `context` in different scopes)
 - Missing imports or incorrect function names
 
+### Verify APIs exist before using them
+
+**Before calling any method on `chat`, `canvas`, `storage`, or `graph` objects, verify the method exists.**
+
+AI agents often hallucinate plausible-sounding method names that don't exist. This causes runtime errors
+that are hard to debug because they only appear when the code path is triggered.
+
+**Verification steps:**
+
+1. Search for the method definition in the source file:
+   ```bash
+   grep -n "methodName\s*(" static/js/chat.js
+   ```
+
+2. If the method doesn't exist, look for similar methods that do exist, or implement the functionality
+   using methods that are documented below.
+
+**Common mistakes (do NOT use these - they don't exist):**
+
+| Wrong (doesn't exist) | Correct alternative |
+|-----------------------|---------------------|
+| `chat.streamChat()` | Use `chat.sendMessage()` with callbacks |
+| `canvas.setNodeStreaming()` | Use `canvas.showStopButton()` / `canvas.hideStopButton()` |
+| `canvas.getSelectedNodes()` | Use `canvas.getSelectedNodeIds()` |
+| `storage.getApiKey()` | Use `chat.getApiKeyForModel(model)` |
+
+**Key methods that DO exist:**
+
+`chat.js`:
+- `getApiKeyForModel(model)` - Get API key for a model
+- `sendMessage(messages, model, onChunk, onDone, onError)` - Stream LLM response
+- `summarize(messages, model)` - Get a summary (non-streaming)
+- `estimateTokens(text, model)` - Estimate token count
+
+`canvas.js`:
+- `getSelectedNodeIds()` - Get array of selected node IDs
+- `updateNodeContent(nodeId, content, isStreaming)` - Update node text
+- `showStopButton(nodeId)` / `hideStopButton(nodeId)` - Streaming controls
+- `showContinueButton(nodeId)` / `hideContinueButton(nodeId)` - Resume controls
+- `renderNode(node)` / `removeNode(nodeId)` - Node lifecycle
+- `panToNodeAnimated(nodeId)` - Navigate to a node
+
+`storage.js`:
+- `getApiKeys()` - Get all stored API keys object
+- `getApiKeyForProvider(provider)` - Get key for specific provider
+- `getExaApiKey()` - Get Exa search API key
+- `saveSession(session)` / `getSession(id)` - Session persistence
+
 ## Modal Deployment
 
 ### Architecture: Bring Your Own Keys
