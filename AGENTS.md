@@ -305,7 +305,13 @@ so code changes are automatically picked up. Just make your edits and the server
 Write unit tests for logic that does not require API calls:
 
 - **Python**: Test pure functions, data transformations, parsing logic
-- **JavaScript**: Test graph algorithms, node/edge operations, utility functions
+- **JavaScript**: Test graph algorithms, node/edge operations, utility functions, DOM manipulation
+
+**JavaScript test files:**
+
+- `tests/test_utils.js` - Pure function tests (error formatting, node creation, graph operations, etc.)
+- `tests/test_search.js` - BM25 search algorithm tests
+- `tests/test_ui.js` - DOM manipulation tests using jsdom simulation
 
 Do not write tests that require external API calls (LLM, Exa, etc.) - these are tested manually.
 
@@ -313,7 +319,13 @@ Run tests with:
 
 ```bash
 pixi run test      # Python tests
-pixi run test-js   # JavaScript tests
+pixi run test-js   # JavaScript tests (runs all JS test files)
+```
+
+**Note:** Before running JavaScript tests, ensure npm dependencies are installed:
+
+```bash
+pixi run npm install  # Installs jsdom for DOM simulation tests
 ```
 
 ### Syntax checking
