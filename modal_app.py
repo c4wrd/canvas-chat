@@ -16,22 +16,21 @@ import modal
 # Create the Modal app
 app = modal.App("canvas-chat")
 
-# Define the image using pixi for environment management
+# Define the image with all dependencies
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    # Install curl and pixi
-    .apt_install("curl")
-    .run_commands("curl -fsSL https://pixi.sh/install.sh | bash")
-    .env({"PATH": "/root/.pixi/bin:$PATH"})
-    # Copy project files needed for pixi install (copy=True required for subsequent run_commands)
-    .add_local_file("pyproject.toml", remote_path="/app/pyproject.toml", copy=True)
-    .add_local_file("pixi.lock", remote_path="/app/pixi.lock", copy=True)
-    .add_local_file("README.md", remote_path="/app/README.md", copy=True)
-    .add_local_dir("src", remote_path="/app/src", copy=True)
-    # Install dependencies using pixi with the 'modal' environment (Python 3.11)
-    .run_commands(
-        "cd /app && /root/.pixi/bin/pixi install --locked -e modal",
+    .pip_install(
+        "fastapi[standard]>=0.115.0",
+        "uvicorn>=0.32.0",
+        "litellm>=1.50.0",
+        "sse-starlette>=2.0.0",
+        "pydantic>=2.0.0",
+        "exa-py>=1.0.0",
+        "pymupdf>=1.24.0",
+        "python-multipart>=0.0.9",
+        "html2text>=2024.0.0",
     )
+    .add_local_dir("src/canvas_chat", remote_path="/app/canvas_chat")
 )
 
 
@@ -43,27 +42,9 @@ image = (
 @modal.asgi_app()
 def fastapi_app():
     """Serve the FastAPI application."""
-    import subprocess
     import sys
 
-    # Get the pixi 'modal' environment's Python path and add it to sys.path
-    result = subprocess.run(
-        [
-            "/root/.pixi/bin/pixi",
-            "run",
-            "-e",
-            "modal",
-            "python",
-            "-c",
-            "import sys; print(':'.join(sys.path))",
-        ],
-        capture_output=True,
-        text=True,
-        cwd="/app",
-    )
-    for path in result.stdout.strip().split(":"):
-        if path and path not in sys.path:
-            sys.path.insert(0, path)
+    sys.path.insert(0, "/app")
 
     from canvas_chat.app import app as canvas_app
 
