@@ -28,9 +28,9 @@ image = (
     .add_local_file("pixi.lock", remote_path="/app/pixi.lock", copy=True)
     .add_local_file("README.md", remote_path="/app/README.md", copy=True)
     .add_local_dir("src", remote_path="/app/src", copy=True)
-    # Install dependencies using pixi
+    # Install dependencies using pixi with the 'modal' environment (Python 3.11)
     .run_commands(
-        "cd /app && /root/.pixi/bin/pixi install --locked",
+        "cd /app && /root/.pixi/bin/pixi install --locked -e modal",
     )
 )
 
@@ -46,13 +46,13 @@ def fastapi_app():
     import subprocess
     import sys
 
-    # Get the pixi environment's Python path and add it to sys.path
+    # Get the pixi 'modal' environment's Python path and add it to sys.path
     result = subprocess.run(
         [
             "/root/.pixi/bin/pixi",
             "run",
             "-e",
-            "default",
+            "modal",
             "python",
             "-c",
             "import sys; print(':'.join(sys.path))",
