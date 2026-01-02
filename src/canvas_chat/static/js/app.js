@@ -4103,7 +4103,9 @@ class App {
         const div = wrapper.querySelector('.node');
         if (!div) return;
 
-        const isScrollableType = SCROLLABLE_NODE_TYPES.includes(node.type);
+        // Use protocol pattern to determine if scrollable (self-contained in node classes)
+        const wrapped = wrapNode(node);
+        const isScrollableType = wrapped.isScrollable();
         const isMatrixNode = node.type === NodeType.MATRIX;
 
         let defaultWidth, defaultHeight;

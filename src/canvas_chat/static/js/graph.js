@@ -88,7 +88,10 @@ const TAG_COLORS = [
 function createNode(type, content, options = {}) {
     // Apply default fixed size for scrollable node types
     // These nodes have long content that should scroll rather than expand
-    const isScrollable = SCROLLABLE_NODE_TYPES.includes(type);
+    // Use protocol pattern to determine if scrollable (self-contained in node classes)
+    const mockNode = { type, content: '' };
+    const wrapped = typeof wrapNode !== 'undefined' ? wrapNode(mockNode) : null;
+    const isScrollable = wrapped ? wrapped.isScrollable() : SCROLLABLE_NODE_TYPES.includes(type);
     const defaultWidth = isScrollable ? SCROLLABLE_NODE_SIZE.width : undefined;
     const defaultHeight = isScrollable ? SCROLLABLE_NODE_SIZE.height : undefined;
 

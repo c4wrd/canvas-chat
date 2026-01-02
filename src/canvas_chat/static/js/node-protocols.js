@@ -118,7 +118,7 @@ class BaseNode {
      * @returns {boolean}
      */
     isScrollable() {
-        return SCROLLABLE_NODE_TYPES.includes(this.node.type);
+        return false;
     }
 }
 
