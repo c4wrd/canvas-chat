@@ -19,13 +19,14 @@ app = modal.App("canvas-chat")
 # Define the image using pixi for environment management
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    # Install pixi
+    # Install curl and pixi
+    .apt_install("curl")
     .run_commands("curl -fsSL https://pixi.sh/install.sh | bash")
     .env({"PATH": "/root/.pixi/bin:$PATH"})
-    # Copy project files needed for pixi install
-    .add_local_file("pyproject.toml", remote_path="/app/pyproject.toml")
-    .add_local_file("pixi.lock", remote_path="/app/pixi.lock")
-    .add_local_dir("src", remote_path="/app/src")
+    # Copy project files needed for pixi install (copy=True required for subsequent run_commands)
+    .add_local_file("pyproject.toml", remote_path="/app/pyproject.toml", copy=True)
+    .add_local_file("pixi.lock", remote_path="/app/pixi.lock", copy=True)
+    .add_local_dir("src", remote_path="/app/src", copy=True)
     # Install dependencies using pixi
     .run_commands(
         "cd /app && /root/.pixi/bin/pixi install --locked",
