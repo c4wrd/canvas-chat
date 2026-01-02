@@ -514,6 +514,7 @@ class App {
         this.canvas.onNodeSummarize = this.handleNodeSummarize.bind(this);
         this.canvas.onNodeFetchSummarize = this.handleNodeFetchSummarize.bind(this);
         this.canvas.onNodeDelete = this.handleNodeDelete.bind(this);
+        this.canvas.onNodeCopy = this.copyNodeContent.bind(this);
         this.canvas.onNodeTitleEdit = this.handleNodeTitleEdit.bind(this);
 
         // Matrix-specific callbacks
@@ -4369,27 +4370,9 @@ class App {
         if (!node) return;
 
         try {
-            if (node.imageData) {
-                // For image nodes, copy the image to clipboard
-                await this.canvas.copyImageToClipboard(node.imageData, node.mimeType);
-                this.canvas.showCopyFeedback(nodeId);
-                return;
-            }
-
-            let textToCopy;
-
-            if (node.type === NodeType.MATRIX) {
-                // Format matrix as markdown table
-                textToCopy = this.formatMatrixAsText(node);
-            } else {
-                textToCopy = node.content;
-            }
-
-            if (!textToCopy) return;
-
-            await navigator.clipboard.writeText(textToCopy);
-            // Show brief visual feedback via the canvas
-            this.canvas.showCopyFeedback(nodeId);
+            // Use protocol pattern
+            const wrapped = wrapNode(node);
+            await wrapped.copyToClipboard(this.canvas, this);
         } catch (err) {
             console.error('Failed to copy:', err);
         }
