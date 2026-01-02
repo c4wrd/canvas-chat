@@ -1813,6 +1813,663 @@ test('MatrixCellTracker: same cell can be restarted after completion', () => {
 });
 
 // ============================================================
+// formatUserError tests
+// ============================================================
+
+/**
+ * Format a technical error into a user-friendly message
+ * Copy of function from app.js for testing
+ */
+function formatUserError(error) {
+    const errMsg = error?.message || String(error);
+    const errLower = errMsg.toLowerCase();
+
+    // Timeout errors
+    if (errLower.includes('timeout') || errLower.includes('etimedout') || errLower.includes('took too long')) {
+        return {
+            title: 'Request timed out',
+            description: 'The server is taking too long to respond. This may be due to high load.',
+            canRetry: true
+        };
+    }
+
+    // Authentication errors
+    if (errLower.includes('401') || errLower.includes('unauthorized') || errLower.includes('invalid api key')) {
+        return {
+            title: 'Authentication failed',
+            description: 'Your API key may be invalid or expired. Please check your settings.',
+            canRetry: false
+        };
+    }
+
+    // Rate limit errors
+    if (errLower.includes('429') || errLower.includes('rate limit') || errLower.includes('too many requests')) {
+        return {
+            title: 'Rate limit reached',
+            description: 'Too many requests. Please wait a moment before trying again.',
+            canRetry: true
+        };
+    }
+
+    // Server errors
+    if (errLower.includes('500') || errLower.includes('502') || errLower.includes('503') || errLower.includes('server error')) {
+        return {
+            title: 'Server error',
+            description: 'The server encountered an error. Please try again later.',
+            canRetry: true
+        };
+    }
+
+    // Network errors
+    if (errLower.includes('failed to fetch') || errLower.includes('network') || errLower.includes('connection')) {
+        return {
+            title: 'Network error',
+            description: 'Could not connect to the server. Please check your internet connection.',
+            canRetry: true
+        };
+    }
+
+    // Context length errors
+    if (errLower.includes('context length') || errLower.includes('too long') || errLower.includes('maximum context')) {
+        return {
+            title: 'Message too long',
+            description: 'The conversation is too long for this model. Try selecting fewer nodes.',
+            canRetry: false
+        };
+    }
+
+    // Default error
+    return {
+        title: 'Something went wrong',
+        description: errMsg || 'An unexpected error occurred. Please try again.',
+        canRetry: true
+    };
+}
+
+test('formatUserError: timeout detection', () => {
+    const result = formatUserError({ message: 'Request timeout' });
+    assertEqual(result.title, 'Request timed out');
+    assertTrue(result.canRetry);
+});
+
+test('formatUserError: ETIMEDOUT detection', () => {
+    const result = formatUserError({ message: 'ETIMEDOUT error' });
+    assertEqual(result.title, 'Request timed out');
+});
+
+test('formatUserError: authentication error detection', () => {
+    const result = formatUserError({ message: '401 Unauthorized' });
+    assertEqual(result.title, 'Authentication failed');
+    assertFalse(result.canRetry);
+});
+
+test('formatUserError: invalid API key detection', () => {
+    const result = formatUserError({ message: 'Invalid API key' });
+    assertEqual(result.title, 'Authentication failed');
+});
+
+test('formatUserError: rate limit detection', () => {
+    const result = formatUserError({ message: '429 Rate limit exceeded' });
+    assertEqual(result.title, 'Rate limit reached');
+    assertTrue(result.canRetry);
+});
+
+test('formatUserError: server error detection', () => {
+    const result = formatUserError({ message: '500 Internal Server Error' });
+    assertEqual(result.title, 'Server error');
+    assertTrue(result.canRetry);
+});
+
+test('formatUserError: network error detection', () => {
+    const result = formatUserError({ message: 'Failed to fetch' });
+    assertEqual(result.title, 'Network error');
+    assertTrue(result.canRetry);
+});
+
+test('formatUserError: context length error detection', () => {
+    const result = formatUserError({ message: 'Context length exceeded' });
+    assertEqual(result.title, 'Message too long');
+    assertFalse(result.canRetry);
+});
+
+test('formatUserError: default error handling', () => {
+    const result = formatUserError({ message: 'Unknown error' });
+    assertEqual(result.title, 'Something went wrong');
+    assertTrue(result.canRetry);
+    assertTrue(result.description.includes('Unknown error'));
+});
+
+test('formatUserError: handles string errors', () => {
+    const result = formatUserError('Some error string');
+    assertEqual(result.title, 'Something went wrong');
+    assertTrue(result.description.includes('Some error string'));
+});
+
+test('formatUserError: handles null/undefined', () => {
+    const result = formatUserError(null);
+    assertEqual(result.title, 'Something went wrong');
+    // When null, String(null) = "null", so description will be "null" or "An unexpected error occurred"
+    assertTrue(result.description.includes('null') || result.description.includes('unexpected'));
+});
+
+// ============================================================
+// buildMessagesForApi tests
+// ============================================================
+
+/**
+ * Build messages for LLM API from resolved context
+ * Copy of function from app.js for testing
+ */
+function buildMessagesForApi(contextMessages) {
+    const result = [];
+    let pendingImages = [];
+
+    for (let i = 0; i < contextMessages.length; i++) {
+        const msg = contextMessages[i];
+
+        if (msg.imageData) {
+            pendingImages.push({
+                type: 'image_url',
+                image_url: {
+                    url: `data:${msg.mimeType};base64,${msg.imageData}`
+                }
+            });
+        } else if (msg.content) {
+            if (pendingImages.length > 0 && msg.role === 'user') {
+                result.push({
+                    role: 'user',
+                    content: [
+                        ...pendingImages,
+                        { type: 'text', text: msg.content }
+                    ]
+                });
+                pendingImages = [];
+            } else {
+                for (const imgPart of pendingImages) {
+                    result.push({
+                        role: 'user',
+                        content: [imgPart]
+                    });
+                }
+                pendingImages = [];
+
+                result.push({
+                    role: msg.role,
+                    content: msg.content
+                });
+            }
+        }
+    }
+
+    for (const imgPart of pendingImages) {
+        result.push({
+            role: 'user',
+            content: [imgPart]
+        });
+    }
+
+    return result;
+}
+
+test('buildMessagesForApi: simple text messages', () => {
+    const messages = [
+        { role: 'user', content: 'Hello' },
+        { role: 'assistant', content: 'Hi there' }
+    ];
+    const result = buildMessagesForApi(messages);
+    assertEqual(result.length, 2);
+    assertEqual(result[0].role, 'user');
+    assertEqual(result[0].content, 'Hello');
+    assertEqual(result[1].role, 'assistant');
+    assertEqual(result[1].content, 'Hi there');
+});
+
+test('buildMessagesForApi: merges images with user text', () => {
+    const messages = [
+        { role: 'user', imageData: 'img1', mimeType: 'image/png' },
+        { role: 'user', content: 'What is this?' }
+    ];
+    const result = buildMessagesForApi(messages);
+    assertEqual(result.length, 1);
+    assertEqual(result[0].role, 'user');
+    assertTrue(Array.isArray(result[0].content));
+    assertEqual(result[0].content.length, 2);
+    assertEqual(result[0].content[0].type, 'image_url');
+    assertEqual(result[0].content[1].type, 'text');
+    assertEqual(result[0].content[1].text, 'What is this?');
+});
+
+test('buildMessagesForApi: separates images from assistant messages', () => {
+    const messages = [
+        { role: 'user', imageData: 'img1', mimeType: 'image/png' },
+        { role: 'assistant', content: 'Response' }
+    ];
+    const result = buildMessagesForApi(messages);
+    assertEqual(result.length, 2);
+    assertEqual(result[0].role, 'user');
+    assertEqual(result[1].role, 'assistant');
+});
+
+test('buildMessagesForApi: multiple images merge with user text', () => {
+    const messages = [
+        { role: 'user', imageData: 'img1', mimeType: 'image/png' },
+        { role: 'user', imageData: 'img2', mimeType: 'image/jpeg' },
+        { role: 'user', content: 'Analyze these' }
+    ];
+    const result = buildMessagesForApi(messages);
+    assertEqual(result.length, 1);
+    assertEqual(result[0].content.length, 3);
+    assertEqual(result[0].content[0].type, 'image_url');
+    assertEqual(result[0].content[1].type, 'image_url');
+    assertEqual(result[0].content[2].type, 'text');
+});
+
+test('buildMessagesForApi: trailing images become separate messages', () => {
+    const messages = [
+        { role: 'user', content: 'Hello' },
+        { role: 'user', imageData: 'img1', mimeType: 'image/png' }
+    ];
+    const result = buildMessagesForApi(messages);
+    assertEqual(result.length, 2);
+    assertEqual(result[0].content, 'Hello');
+    assertEqual(result[1].role, 'user');
+    assertEqual(result[1].content[0].type, 'image_url');
+});
+
+// ============================================================
+// Zoom class determination tests
+// ============================================================
+
+/**
+ * Get zoom class based on scale
+ * Copy of logic from canvas.js for testing
+ */
+function getZoomClass(scale) {
+    if (scale > 0.6) {
+        return 'zoom-full';
+    } else if (scale > 0.35) {
+        return 'zoom-summary';
+    } else {
+        return 'zoom-mini';
+    }
+}
+
+test('getZoomClass: scale 0.8 returns zoom-full', () => {
+    assertEqual(getZoomClass(0.8), 'zoom-full');
+});
+
+test('getZoomClass: scale 1.0 returns zoom-full', () => {
+    assertEqual(getZoomClass(1.0), 'zoom-full');
+});
+
+test('getZoomClass: scale 0.6 returns zoom-summary (boundary)', () => {
+    // Note: scale > 0.6 is full, so 0.6 exactly is summary
+    assertEqual(getZoomClass(0.6), 'zoom-summary');
+});
+
+test('getZoomClass: scale 0.5 returns zoom-summary', () => {
+    assertEqual(getZoomClass(0.5), 'zoom-summary');
+});
+
+test('getZoomClass: scale 0.35 returns zoom-mini (boundary)', () => {
+    // Note: scale > 0.35 is summary, so 0.35 exactly is mini
+    assertEqual(getZoomClass(0.35), 'zoom-mini');
+});
+
+test('getZoomClass: scale 0.3 returns zoom-mini', () => {
+    assertEqual(getZoomClass(0.3), 'zoom-mini');
+});
+
+test('getZoomClass: scale 0.1 returns zoom-mini', () => {
+    assertEqual(getZoomClass(0.1), 'zoom-mini');
+});
+
+// ============================================================
+// Node creation tests
+// ============================================================
+
+/**
+ * Node type constants (simplified for testing)
+ */
+const NodeType = {
+    HUMAN: 'human',
+    AI: 'ai',
+    NOTE: 'note',
+    SUMMARY: 'summary',
+    MATRIX: 'matrix',
+    CELL: 'cell',
+    ROW: 'row',
+    COLUMN: 'column'
+};
+
+const SCROLLABLE_NODE_TYPES = [
+    NodeType.AI,
+    NodeType.SUMMARY,
+    NodeType.NOTE
+];
+
+const SCROLLABLE_NODE_SIZE = {
+    width: 640,
+    height: 480
+};
+
+/**
+ * Create a new node
+ * Copy of function from graph.js for testing
+ */
+function createNode(type, content, options = {}) {
+    const isScrollable = SCROLLABLE_NODE_TYPES.includes(type);
+    const defaultWidth = isScrollable ? SCROLLABLE_NODE_SIZE.width : undefined;
+    const defaultHeight = isScrollable ? SCROLLABLE_NODE_SIZE.height : undefined;
+
+    return {
+        id: 'test-id-' + Math.random().toString(36).substr(2, 9),
+        type,
+        content,
+        position: options.position || { x: 0, y: 0 },
+        width: options.width || defaultWidth,
+        height: options.height || defaultHeight,
+        created_at: Date.now(),
+        model: options.model || null,
+        tags: options.tags || [],
+        title: options.title || null,
+        summary: options.summary || null,
+        ...options
+    };
+}
+
+test('createNode: basic node creation', () => {
+    const node = createNode(NodeType.HUMAN, 'Hello');
+    assertEqual(node.type, NodeType.HUMAN);
+    assertEqual(node.content, 'Hello');
+    assertEqual(node.position.x, 0);
+    assertEqual(node.position.y, 0);
+    assertTrue(node.id.startsWith('test-id-'));
+});
+
+test('createNode: scrollable node types get fixed size', () => {
+    const node = createNode(NodeType.AI, 'Response');
+    assertEqual(node.width, 640);
+    assertEqual(node.height, 480);
+});
+
+test('createNode: non-scrollable node types have no default size', () => {
+    const node = createNode(NodeType.HUMAN, 'Hello');
+    assertEqual(node.width, undefined);
+    assertEqual(node.height, undefined);
+});
+
+test('createNode: custom position', () => {
+    const node = createNode(NodeType.HUMAN, 'Hello', { position: { x: 100, y: 200 } });
+    assertEqual(node.position.x, 100);
+    assertEqual(node.position.y, 200);
+});
+
+test('createNode: custom width/height override defaults', () => {
+    const node = createNode(NodeType.AI, 'Response', { width: 800, height: 600 });
+    assertEqual(node.width, 800);
+    assertEqual(node.height, 600);
+});
+
+test('createNode: tags array initialized', () => {
+    const node = createNode(NodeType.HUMAN, 'Hello');
+    assertTrue(Array.isArray(node.tags));
+    assertEqual(node.tags.length, 0);
+});
+
+test('createNode: custom tags', () => {
+    const node = createNode(NodeType.HUMAN, 'Hello', { tags: ['red', 'blue'] });
+    assertEqual(node.tags.length, 2);
+    assertEqual(node.tags[0], 'red');
+});
+
+/**
+ * Create a matrix node
+ * Copy of function from graph.js for testing
+ */
+function createMatrixNode(context, contextNodeIds, rowItems, colItems, options = {}) {
+    const cells = {};
+    for (let r = 0; r < rowItems.length; r++) {
+        for (let c = 0; c < colItems.length; c++) {
+            cells[`${r}-${c}`] = { content: null, filled: false };
+        }
+    }
+
+    return {
+        id: 'test-id-' + Math.random().toString(36).substr(2, 9),
+        type: NodeType.MATRIX,
+        content: '',
+        context,
+        contextNodeIds,
+        rowItems,
+        colItems,
+        cells,
+        position: options.position || { x: 0, y: 0 },
+        created_at: Date.now(),
+        ...options
+    };
+}
+
+test('createMatrixNode: creates matrix with cells', () => {
+    const matrix = createMatrixNode('Compare products', ['id1'], ['Product A', 'Product B'], ['Price', 'Quality']);
+    assertEqual(matrix.type, NodeType.MATRIX);
+    assertEqual(matrix.context, 'Compare products');
+    assertEqual(matrix.rowItems.length, 2);
+    assertEqual(matrix.colItems.length, 2);
+    assertEqual(Object.keys(matrix.cells).length, 4);
+    assertEqual(matrix.cells['0-0'].filled, false);
+});
+
+test('createMatrixNode: initializes all cells as empty', () => {
+    const matrix = createMatrixNode('Test', ['id1'], ['Row1', 'Row2'], ['Col1', 'Col2', 'Col3']);
+    assertEqual(Object.keys(matrix.cells).length, 6);
+    for (const cell of Object.values(matrix.cells)) {
+        assertEqual(cell.content, null);
+        assertFalse(cell.filled);
+    }
+});
+
+/**
+ * Create a row node
+ * Copy of function from graph.js for testing
+ */
+function createRowNode(matrixId, rowIndex, rowItem, colItems, cellContents, options = {}) {
+    let content = `**Row: ${rowItem}**\n\n`;
+    for (let c = 0; c < colItems.length; c++) {
+        const cellContent = cellContents[c];
+        if (cellContent) {
+            content += `### ${colItems[c]}\n${cellContent}\n\n`;
+        } else {
+            content += `### ${colItems[c]}\n*(empty)*\n\n`;
+        }
+    }
+
+    return {
+        id: 'test-id-' + Math.random().toString(36).substr(2, 9),
+        type: NodeType.ROW,
+        content: content.trim(),
+        matrixId,
+        rowIndex,
+        rowItem,
+        position: options.position || { x: 0, y: 0 },
+        created_at: Date.now(),
+        ...options
+    };
+}
+
+test('createRowNode: formats row content correctly', () => {
+    const row = createRowNode('matrix-1', 0, 'Product A', ['Price', 'Quality'], ['$10', 'Good']);
+    assertEqual(row.type, NodeType.ROW);
+    assertEqual(row.rowItem, 'Product A');
+    assertTrue(row.content.includes('**Row: Product A**'));
+    assertTrue(row.content.includes('### Price'));
+    assertTrue(row.content.includes('$10'));
+});
+
+test('createRowNode: handles empty cells', () => {
+    const row = createRowNode('matrix-1', 0, 'Product A', ['Price', 'Quality'], ['$10', null]);
+    assertTrue(row.content.includes('*(empty)*'));
+});
+
+/**
+ * Create a column node
+ * Copy of function from graph.js for testing
+ */
+function createColumnNode(matrixId, colIndex, colItem, rowItems, cellContents, options = {}) {
+    let content = `**Column: ${colItem}**\n\n`;
+    for (let r = 0; r < rowItems.length; r++) {
+        const cellContent = cellContents[r];
+        if (cellContent) {
+            content += `### ${rowItems[r]}\n${cellContent}\n\n`;
+        } else {
+            content += `### ${rowItems[r]}\n*(empty)*\n\n`;
+        }
+    }
+
+    return {
+        id: 'test-id-' + Math.random().toString(36).substr(2, 9),
+        type: NodeType.COLUMN,
+        content: content.trim(),
+        matrixId,
+        colIndex,
+        colItem,
+        position: options.position || { x: 0, y: 0 },
+        created_at: Date.now(),
+        ...options
+    };
+}
+
+test('createColumnNode: formats column content correctly', () => {
+    const col = createColumnNode('matrix-1', 0, 'Price', ['Product A', 'Product B'], ['$10', '$20']);
+    assertEqual(col.type, NodeType.COLUMN);
+    assertEqual(col.colItem, 'Price');
+    assertTrue(col.content.includes('**Column: Price**'));
+    assertTrue(col.content.includes('### Product A'));
+    assertTrue(col.content.includes('$10'));
+});
+
+// ============================================================
+// Graph.resolveContext tests
+// ============================================================
+
+/**
+ * Simplified Graph class for testing resolveContext
+ */
+class TestGraphForContext {
+    constructor() {
+        this.nodes = new Map();
+        this.incomingEdges = new Map();
+    }
+
+    addNode(node) {
+        this.nodes.set(node.id, node);
+        if (!this.incomingEdges.has(node.id)) {
+            this.incomingEdges.set(node.id, []);
+        }
+    }
+
+    addEdge(sourceId, targetId) {
+        if (!this.incomingEdges.has(targetId)) {
+            this.incomingEdges.set(targetId, []);
+        }
+        this.incomingEdges.get(targetId).push({ source: sourceId });
+    }
+
+    getParents(nodeId) {
+        const incoming = this.incomingEdges.get(nodeId) || [];
+        return incoming.map(edge => this.nodes.get(edge.source)).filter(Boolean);
+    }
+
+    getAncestors(nodeId, visited = new Set()) {
+        if (visited.has(nodeId)) return [];
+        visited.add(nodeId);
+
+        const ancestors = [];
+        const parents = this.getParents(nodeId);
+
+        for (const parent of parents) {
+            ancestors.push(...this.getAncestors(parent.id, visited));
+            ancestors.push(parent);
+        }
+
+        return ancestors;
+    }
+
+    resolveContext(nodeIds) {
+        const allAncestors = new Map();
+
+        for (const nodeId of nodeIds) {
+            const node = this.nodes.get(nodeId);
+            if (node) {
+                allAncestors.set(node.id, node);
+            }
+
+            const ancestors = this.getAncestors(nodeId);
+            for (const ancestor of ancestors) {
+                allAncestors.set(ancestor.id, ancestor);
+            }
+        }
+
+        const sorted = Array.from(allAncestors.values())
+            .sort((a, b) => a.created_at - b.created_at);
+
+        const userTypes = [NodeType.HUMAN, NodeType.NOTE];
+        return sorted.map(node => ({
+            role: userTypes.includes(node.type) ? 'user' : 'assistant',
+            content: node.content,
+            nodeId: node.id
+        }));
+    }
+}
+
+test('Graph.resolveContext: maps user types to user role', () => {
+    const graph = new TestGraphForContext();
+    const node1 = { id: '1', type: NodeType.HUMAN, content: 'Hello', created_at: 1 };
+    graph.addNode(node1);
+
+    const context = graph.resolveContext(['1']);
+    assertEqual(context.length, 1);
+    assertEqual(context[0].role, 'user');
+});
+
+test('Graph.resolveContext: maps AI types to assistant role', () => {
+    const graph = new TestGraphForContext();
+    const node1 = { id: '1', type: NodeType.AI, content: 'Response', created_at: 1 };
+    graph.addNode(node1);
+
+    const context = graph.resolveContext(['1']);
+    assertEqual(context.length, 1);
+    assertEqual(context[0].role, 'assistant');
+});
+
+test('Graph.resolveContext: includes ancestors', () => {
+    const graph = new TestGraphForContext();
+    const node1 = { id: '1', type: NodeType.HUMAN, content: 'Hello', created_at: 1 };
+    const node2 = { id: '2', type: NodeType.AI, content: 'Hi', created_at: 2 };
+    graph.addNode(node1);
+    graph.addNode(node2);
+    graph.addEdge('1', '2');
+
+    const context = graph.resolveContext(['2']);
+    assertEqual(context.length, 2);
+    assertEqual(context[0].role, 'user');
+    assertEqual(context[1].role, 'assistant');
+});
+
+test('Graph.resolveContext: sorts by created_at', () => {
+    const graph = new TestGraphForContext();
+    const node1 = { id: '1', type: NodeType.HUMAN, content: 'First', created_at: 1 };
+    const node2 = { id: '2', type: NodeType.AI, content: 'Second', created_at: 2 };
+    graph.addNode(node1);
+    graph.addNode(node2);
+    graph.addEdge('1', '2');
+
+    const context = graph.resolveContext(['2']);
+    assertEqual(context[0].content, 'First');
+    assertEqual(context[1].content, 'Second');
+});
+
+// ============================================================
 // Summary
 // ============================================================
 
