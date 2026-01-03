@@ -4,7 +4,7 @@
   "description": "A visual, non-linear chat interface where conversations are nodes on an infinite canvas",
   "type": "module",
   "scripts": {
-    "test": "bash scripts/test-js.sh"
+    "test": "pixi run test-js"
   },
   "devDependencies": {
     "jsdom": "^24.0.0"
