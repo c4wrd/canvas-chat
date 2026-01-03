@@ -51,6 +51,11 @@ const {
     createMatrixNode: createMatrixNodeReal,
     createRowNode: createRowNodeReal,
     createColumnNode: createColumnNodeReal,
+    isUrlContent,
+    extractUrlFromReferenceNode,
+    truncateText,
+    escapeHtmlText,
+    formatMatrixAsText,
     NodeType,
     SCROLLABLE_NODE_TYPES,
     SCROLLABLE_NODE_SIZE
@@ -106,29 +111,18 @@ function assertDeepEqual(actual, expected) {
 // extractUrlFromReferenceNode tests
 // ============================================================
 
-/**
- * Extract URL from Reference node content (format: **[Title](url)**)
- * NOTE: This is a simple utility function used in app.js but not exported.
- * Keeping a copy here for testing since it's a pure function with no dependencies.
- */
-function extractUrlFromReferenceNode(content) {
-    // Match markdown link pattern: [text](url)
-    const match = content.match(/\[([^\]]+)\]\(([^)]+)\)/);
-    if (match && match[2]) {
-        return match[2];
-    }
-    return null;
-}
+// Using actual implementation from app.js (exported to window)
+const extractUrlFromReferenceNodeTest = extractUrlFromReferenceNode;
 
 // Test cases
 test('extractUrlFromReferenceNode: standard markdown link', () => {
     const content = '**[Article Title](https://example.com/article)**\n\nSome snippet text.';
-    assertEqual(extractUrlFromReferenceNode(content), 'https://example.com/article');
+    assertEqual(extractUrlFromReferenceNodeTest(content), 'https://example.com/article');
 });
 
 test('extractUrlFromReferenceNode: link with query params', () => {
     const content = '**[Search Result](https://example.com/page?id=123&ref=abc)**';
-    assertEqual(extractUrlFromReferenceNode(content), 'https://example.com/page?id=123&ref=abc');
+    assertEqual(extractUrlFromReferenceNodeTest(content), 'https://example.com/page?id=123&ref=abc');
 });
 
 test('extractUrlFromReferenceNode: link with special characters in title', () => {
@@ -174,45 +168,8 @@ Rising temperatures and changing precipitation patterns are affecting crop yield
 // formatMatrixAsText tests
 // ============================================================
 
-/**
- * Format a matrix node as a markdown table
- * NOTE: This is an App class method, not a standalone function.
- * Keeping a copy here for testing since it's pure logic with no DOM dependencies.
- * In the future, consider extracting this as a utility function.
- */
-function formatMatrixAsText(matrixNode) {
-    const { context, rowItems, colItems, cells } = matrixNode;
-
-    let text = `## ${context}\n\n`;
-
-    // Header row
-    text += '| |';
-    for (const colItem of colItems) {
-        text += ` ${colItem} |`;
-    }
-    text += '\n';
-
-    // Separator row
-    text += '|---|';
-    for (let c = 0; c < colItems.length; c++) {
-        text += '---|';
-    }
-    text += '\n';
-
-    // Data rows
-    for (let r = 0; r < rowItems.length; r++) {
-        text += `| ${rowItems[r]} |`;
-        for (let c = 0; c < colItems.length; c++) {
-            const cellKey = `${r}-${c}`;
-            const cell = cells[cellKey];
-            const content = cell && cell.content ? cell.content.replace(/\n/g, ' ').replace(/\|/g, '\\|') : '';
-            text += ` ${content} |`;
-        }
-        text += '\n';
-    }
-
-    return text;
-}
+// Using actual implementation from app.js (exported to window)
+const formatMatrixAsTextTest = formatMatrixAsText;
 
 test('formatMatrixAsText: basic 2x2 matrix', () => {
     const matrix = {
@@ -227,7 +184,7 @@ test('formatMatrixAsText: basic 2x2 matrix', () => {
         }
     };
 
-    const result = formatMatrixAsText(matrix);
+    const result = formatMatrixAsTextTest(matrix);
     assertTrue(result.includes('## Compare products'), 'Should have header');
     assertTrue(result.includes('| Product A |'), 'Should have row item');
     assertTrue(result.includes('$10'), 'Should have cell content');
@@ -244,7 +201,7 @@ test('formatMatrixAsText: empty cells', () => {
         }
     };
 
-    const result = formatMatrixAsText(matrix);
+    const result = formatMatrixAsTextTest(matrix);
     assertTrue(result.includes('## Empty matrix'), 'Should have header');
     assertTrue(result.includes('| Row 1 |'), 'Should have row item');
 });
@@ -259,7 +216,7 @@ test('formatMatrixAsText: cell content with newlines gets flattened', () => {
         }
     };
 
-    const result = formatMatrixAsText(matrix);
+    const result = formatMatrixAsTextTest(matrix);
     assertTrue(result.includes('Line 1 Line 2'), 'Newlines should be replaced with spaces');
     assertFalse(result.includes('Line 1\nLine 2'), 'Should not contain literal newlines in cell');
 });
@@ -274,7 +231,7 @@ test('formatMatrixAsText: cell content with pipe characters gets escaped', () =>
         }
     };
 
-    const result = formatMatrixAsText(matrix);
+    const result = formatMatrixAsTextTest(matrix);
     assertTrue(result.includes('A \\| B'), 'Pipe characters should be escaped');
 });
 
@@ -564,80 +521,56 @@ test('wouldOverlap: returns false for empty nodes array', () => {
 // escapeHtml tests
 // ============================================================
 
-/**
- * Escape HTML special characters
- * NOTE: This is a Canvas class method that uses document.createElement.
- * Keeping a copy here for testing since it's pure logic. In the future,
- * consider extracting this as a utility function.
- */
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = { textContent: '' };
-    div.textContent = text;
-    // Simulate what the browser does
-    return text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-}
+// Using actual implementation from app.js (exported to window)
+const escapeHtmlTest = escapeHtmlText;
 
 test('escapeHtml: escapes angle brackets', () => {
-    assertEqual(escapeHtml('<script>'), '&lt;script&gt;');
+    assertEqual(escapeHtmlTest('<script>'), '&lt;script&gt;');
 });
 
 test('escapeHtml: escapes ampersand', () => {
-    assertEqual(escapeHtml('A & B'), 'A &amp; B');
+    assertEqual(escapeHtmlTest('A & B'), 'A &amp; B');
 });
 
 test('escapeHtml: escapes quotes', () => {
-    assertEqual(escapeHtml('"hello"'), '&quot;hello&quot;');
+    assertEqual(escapeHtmlTest('"hello"'), '&quot;hello&quot;');
 });
 
 test('escapeHtml: handles empty string', () => {
-    assertEqual(escapeHtml(''), '');
+    assertEqual(escapeHtmlTest(''), '');
 });
 
 test('escapeHtml: handles null/undefined', () => {
-    assertEqual(escapeHtml(null), '');
-    assertEqual(escapeHtml(undefined), '');
+    assertEqual(escapeHtmlTest(null), '');
+    assertEqual(escapeHtmlTest(undefined), '');
 });
 
 // ============================================================
 // truncate tests
 // ============================================================
 
-/**
- * Truncate text to a maximum length
- * NOTE: This is a Canvas class method. Keeping a copy here for testing.
- * In the future, consider extracting this as a utility function.
- */
-function truncate(text, maxLength) {
-    if (!text) return '';
-    if (text.length <= maxLength) return text;
-    return text.slice(0, maxLength - 3) + '...';
-}
+// Using actual implementation from app.js (exported to window)
+const truncateTest = truncateText;
 
 test('truncate: returns original if shorter than max', () => {
-    assertEqual(truncate('hello', 10), 'hello');
+    assertEqual(truncateTest('hello', 10), 'hello');
 });
 
 test('truncate: truncates and adds ellipsis', () => {
-    assertEqual(truncate('hello world', 8), 'hello...');
+    assertEqual(truncateTest('hello world', 8), 'hello wo…');
 });
 
 test('truncate: handles exact length', () => {
-    assertEqual(truncate('hello', 5), 'hello');
+    assertEqual(truncateTest('hello', 5), 'hello');
 });
 
 test('truncate: handles empty string', () => {
-    assertEqual(truncate('', 10), '');
+    assertEqual(truncateTest('', 10), '');
 });
 
 test('truncate: handles null/undefined', () => {
-    assertEqual(truncate(null, 10), '');
-    assertEqual(truncate(undefined, 10), '');
+    assertEqual(truncateTest(null, 10), '');
+    assertEqual(truncateTest(undefined, 10), '');
 });
 
 // ============================================================
@@ -1443,70 +1376,63 @@ test('getApiKeysForModels: empty array returns empty object', () => {
 // URL detection tests (for /note command)
 // ============================================================
 
-/**
- * Detect if content is a URL (used by handleNote to route to handleNoteFromUrl)
- * NOTE: This is a simple utility function used in app.js but not exported.
- * Keeping a copy here for testing since it's a pure function with no dependencies.
- */
-function isUrl(content) {
-    const urlPattern = /^https?:\/\/[^\s]+$/;
-    return urlPattern.test(content.trim());
-}
+// Using actual implementation from app.js (exported to window)
+const isUrlTest = isUrlContent;
 
 test('isUrl: detects http URL', () => {
     assertTrue(isUrl('http://example.com'));
 });
 
 test('isUrl: detects https URL', () => {
-    assertTrue(isUrl('https://example.com'));
+    assertTrue(isUrlTest('https://example.com'));
 });
 
 test('isUrl: detects URL with path', () => {
-    assertTrue(isUrl('https://example.com/path/to/page'));
+    assertTrue(isUrlTest('https://example.com/path/to/page'));
 });
 
 test('isUrl: detects URL with query params', () => {
-    assertTrue(isUrl('https://example.com/page?id=123&ref=abc'));
+    assertTrue(isUrlTest('https://example.com/page?id=123&ref=abc'));
 });
 
 test('isUrl: detects URL with fragment', () => {
-    assertTrue(isUrl('https://example.com/page#section'));
+    assertTrue(isUrlTest('https://example.com/page#section'));
 });
 
 test('isUrl: detects complex URL', () => {
-    assertTrue(isUrl('https://pmc.ncbi.nlm.nih.gov/articles/PMC12514551/'));
+    assertTrue(isUrlTest('https://pmc.ncbi.nlm.nih.gov/articles/PMC12514551/'));
 });
 
 test('isUrl: trims whitespace', () => {
-    assertTrue(isUrl('  https://example.com  '));
+    assertTrue(isUrlTest('  https://example.com  '));
 });
 
 test('isUrl: rejects plain text', () => {
-    assertFalse(isUrl('This is just some text'));
+    assertFalse(isUrlTest('This is just some text'));
 });
 
 test('isUrl: rejects markdown', () => {
-    assertFalse(isUrl('# Heading\n\nSome content'));
+    assertFalse(isUrlTest('# Heading\n\nSome content'));
 });
 
 test('isUrl: rejects URL embedded in text', () => {
-    assertFalse(isUrl('Check out https://example.com for more'));
+    assertFalse(isUrlTest('Check out https://example.com for more'));
 });
 
 test('isUrl: rejects URL without protocol', () => {
-    assertFalse(isUrl('example.com'));
+    assertFalse(isUrlTest('example.com'));
 });
 
 test('isUrl: rejects ftp URLs', () => {
-    assertFalse(isUrl('ftp://files.example.com'));
+    assertFalse(isUrlTest('ftp://files.example.com'));
 });
 
 test('isUrl: rejects empty string', () => {
-    assertFalse(isUrl(''));
+    assertFalse(isUrlTest(''));
 });
 
 test('isUrl: rejects whitespace only', () => {
-    assertFalse(isUrl('   '));
+    assertFalse(isUrlTest('   '));
 });
 
 // ============================================================

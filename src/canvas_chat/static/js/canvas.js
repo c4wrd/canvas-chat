@@ -2571,15 +2571,11 @@ class Canvas {
     }
 
     escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        return escapeHtmlText(text);
     }
 
     truncate(text, maxLength) {
-        if (!text) return '';
-        if (text.length <= maxLength) return text;
-        return text.slice(0, maxLength - 1) + '…';
+        return truncateText(text, maxLength);
     }
 
     /**

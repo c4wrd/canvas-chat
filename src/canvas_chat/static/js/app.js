@@ -3,6 +3,30 @@
  */
 
 /**
+ * Detect if content is a URL (used by handleNote to route to handleNoteFromUrl)
+ * @param {string} content - The content to check
+ * @returns {boolean} True if content is a URL
+ */
+function isUrlContent(content) {
+    const urlPattern = /^https?:\/\/[^\s]+$/;
+    return urlPattern.test(content.trim());
+}
+
+/**
+ * Extract URL from Reference node content (format: **[Title](url)**)
+ * @param {string} content - The node content
+ * @returns {string|null} The URL or null if not found
+ */
+function extractUrlFromReferenceNode(content) {
+    // Match markdown link pattern: [text](url)
+    const match = content.match(/\[([^\]]+)\]\(([^)]+)\)/);
+    if (match && match[2]) {
+        return match[2];
+    }
+    return null;
+}
+
+/**
  * Format a technical error into a user-friendly message
  * @param {Error|string} error - The error to format
  * @returns {{ title: string, description: string, canRetry: boolean }}
@@ -71,6 +95,69 @@ function formatUserError(error) {
         description: errMsg || 'An unexpected error occurred. Please try again.',
         canRetry: true
     };
+}
+
+/**
+ * Truncate text to a maximum length
+ * @param {string} text - The text to truncate
+ * @param {number} maxLength - Maximum length
+ * @returns {string} Truncated text with ellipsis
+ */
+function truncateText(text, maxLength) {
+    if (!text) return '';
+    if (text.length <= maxLength) return text;
+    return text.slice(0, maxLength - 1) + '…';
+}
+
+/**
+ * Escape HTML special characters
+ * @param {string} text - The text to escape
+ * @returns {string} Escaped HTML
+ */
+function escapeHtmlText(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+/**
+ * Format a matrix node as a markdown table
+ * @param {Object} matrixNode - The matrix node
+ * @returns {string} Markdown table representation
+ */
+function formatMatrixAsText(matrixNode) {
+    const { context, rowItems, colItems, cells } = matrixNode;
+
+    let text = `## ${context}\n\n`;
+
+    // Header row
+    text += '| |';
+    for (const colItem of colItems) {
+        text += ` ${colItem} |`;
+    }
+    text += '\n';
+
+    // Separator row
+    text += '|---|';
+    for (let c = 0; c < colItems.length; c++) {
+        text += '---|';
+    }
+    text += '\n';
+
+    // Data rows
+    for (let r = 0; r < rowItems.length; r++) {
+        text += `| ${rowItems[r]} |`;
+        for (let c = 0; c < colItems.length; c++) {
+            const cellKey = `${r}-${c}`;
+            const cell = cells[cellKey];
+            const content = cell && cell.content ? cell.content.replace(/\n/g, ' ').replace(/\|/g, '\\|') : '';
+            text += ` ${content} |`;
+        }
+        text += '\n';
+    }
+
+    return text;
 }
 
 /**
@@ -1452,8 +1539,7 @@ class App {
      */
     async handleNote(content) {
         // Detect if content is a URL
-        const urlPattern = /^https?:\/\/[^\s]+$/;
-        const isUrl = urlPattern.test(content.trim());
+        const isUrl = isUrlContent(content);
 
         if (isUrl) {
             const url = content.trim();
@@ -2813,14 +2899,11 @@ class App {
     }
 
     truncate(text, maxLength) {
-        if (text.length <= maxLength) return text;
-        return text.slice(0, maxLength - 1) + '…';
+        return truncateText(text, maxLength);
     }
 
     escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        return escapeHtmlText(text);
     }
 
     // --- Matrix Cell Handlers ---
@@ -3634,12 +3717,7 @@ class App {
      * Extract URL from Reference node content (format: **[Title](url)**)
      */
     extractUrlFromReferenceNode(content) {
-        // Match markdown link pattern: [text](url)
-        const match = content.match(/\[([^\]]+)\]\(([^)]+)\)/);
-        if (match && match[2]) {
-            return match[2];
-        }
-        return null;
+        return extractUrlFromReferenceNode(content);
     }
 
     handleNodeSelect(selectedIds) {
@@ -4384,37 +4462,7 @@ class App {
      * Format a matrix node as a markdown table
      */
     formatMatrixAsText(matrixNode) {
-        const { context, rowItems, colItems, cells } = matrixNode;
-
-        let text = `## ${context}\n\n`;
-
-        // Header row
-        text += '| |';
-        for (const colItem of colItems) {
-            text += ` ${colItem} |`;
-        }
-        text += '\n';
-
-        // Separator row
-        text += '|---|';
-        for (let c = 0; c < colItems.length; c++) {
-            text += '---|';
-        }
-        text += '\n';
-
-        // Data rows
-        for (let r = 0; r < rowItems.length; r++) {
-            text += `| ${rowItems[r]} |`;
-            for (let c = 0; c < colItems.length; c++) {
-                const cellKey = `${r}-${c}`;
-                const cell = cells[cellKey];
-                const content = cell && cell.content ? cell.content.replace(/\n/g, ' ').replace(/\|/g, '\\|') : '';
-                text += ` ${content} |`;
-            }
-            text += '\n';
-        }
-
-        return text;
+        return formatMatrixAsText(matrixNode);
     }
 
     deleteSelectedNodes() {
@@ -5381,9 +5429,7 @@ class App {
     }
 
     escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        return escapeHtmlText(text);
     }
 
     // --- Search Methods ---
@@ -5588,6 +5634,11 @@ class App {
 // Export pure functions for testing
 window.formatUserError = formatUserError;
 window.buildMessagesForApi = buildMessagesForApi;
+window.isUrlContent = isUrlContent;
+window.extractUrlFromReferenceNode = extractUrlFromReferenceNode;
+window.truncateText = truncateText;
+window.escapeHtmlText = escapeHtmlText;
+window.formatMatrixAsText = formatMatrixAsText;
 
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
