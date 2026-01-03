@@ -10,8 +10,8 @@
 
 // Load source files to test actual implementations (not copies)
 import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 const require = createRequire(import.meta.url);
 const __filename = fileURLToPath(import.meta.url);
