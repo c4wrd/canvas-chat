@@ -136,6 +136,13 @@ jobs:
         run: |
           llamabot configure default-model --model-name="gpt-4.1-mini"
           llamabot git write-release-notes
+          # Verify the release notes file was created
+          if [ ! -f "docs/releases/v${{ env.version_number }}.md" ]; then
+            echo "Error: llamabot git write-release-notes did not create docs/releases/v${{ env.version_number }}.md"
+            echo "This indicates llamabot failed or the file was not generated."
+            exit 1
+          fi
+          echo "Release notes file created: docs/releases/v${{ env.version_number }}.md"
 
       - name: Run pre-commit to fix any formatting issues
         if: steps.check_release.outputs.already_released == 'false'
@@ -175,6 +182,16 @@ jobs:
         if: steps.check_release.outputs.already_released == 'false'
         run: |
           git push && git push --tags
+
+      - name: Verify release notes file exists before creating release
+        if: steps.check_release.outputs.already_released == 'false'
+        run: |
+          if [ ! -f "docs/releases/v${{ env.version_number }}.md" ]; then
+            echo "Error: Release notes file docs/releases/v${{ env.version_number }}.md does not exist"
+            echo "This should have been created in the 'Write release notes' step."
+            exit 1
+          fi
+          echo "Release notes file verified: docs/releases/v${{ env.version_number }}.md"
 
       - name: Create release in GitHub repo
         if: steps.check_release.outputs.already_released == 'false'
