@@ -1,5 +1,18 @@
 name: Auto-release
 
+# This workflow automatically creates releases and publishes them to PyPI.
+#
+# Workflow token setup:
+# To trigger the docs workflow automatically, this workflow uses a Personal Access Token (PAT)
+# for git operations. The GITHUB_TOKEN cannot trigger other workflows (security feature).
+#
+# Setup instructions:
+# 1. Create a PAT at https://github.com/settings/tokens with 'repo' and 'workflow' scopes
+# 2. Add it as a repository secret named WORKFLOW_PAT
+# 3. The checkout step will use WORKFLOW_PAT if available, falling back to GITHUB_TOKEN
+#
+# When WORKFLOW_PAT is used, the git push will trigger the docs workflow automatically.
+
 on:
     # Automatic patch release after tests pass on main.
     # This triggers whenever the "Tests" workflow completes.
@@ -53,6 +66,7 @@ jobs:
               with:
                   fetch-depth: 0
                   fetch-tags: true
+                  token: ${{ secrets.WORKFLOW_PAT || secrets.GITHUB_TOKEN }}
 
             - name: Pull latest commits of main branch
               run: |
@@ -210,14 +224,6 @@ jobs:
                   bodyFile: 'docs/releases/posts/v${{ env.version_number }}.md'
                   token: ${{ secrets.GITHUB_TOKEN }}
                   tag: v${{ env.version_number }}
-
-            - name: Trigger docs deployment
-              if: steps.check_release.outputs.already_released == 'false'
-              run: |
-                  # Trigger docs workflow to deploy the new release notes
-                  gh workflow run docs.yaml --ref main
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Ensure complete
               if: steps.check_release.outputs.already_released == 'false'
