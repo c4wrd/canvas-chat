@@ -1762,8 +1762,21 @@ class Canvas {
 
         // Create node HTML
         const div = document.createElement('div');
-        // All nodes are now viewport-fitted (fixed dimensions with scrollable content)
-        div.className = `node ${node.type} viewport-fitted`;
+
+        // Build node classes: base + type + viewport-fitted + execution state for code nodes
+        let nodeClasses = `node ${node.type} viewport-fitted`;
+        if (node.type === 'code' && node.executionState) {
+            if (node.executionState === 'running') {
+                // Check if self-healing to use different styling
+                if (node.selfHealingStatus === 'verifying' || node.selfHealingAttempt) {
+                    nodeClasses += ' code-self-healing';
+                } else {
+                    nodeClasses += ' code-running';
+                }
+            }
+        }
+
+        div.className = nodeClasses;
         div.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
         div.style.width = '100%';
         div.style.height = '100%';

@@ -589,6 +589,42 @@
     border-bottom: 1px solid rgba(0, 0, 0, 0.05);
     font-size: 11px;
     color: var(--text-muted);
+    transition:
+        background 0.2s,
+        color 0.2s;
+}
+
+/* When code is running, highlight the header in blue */
+.node.code-running .node-header {
+    background: var(--color-accent, #4a9eff);
+    color: white;
+}
+
+.node.code-running .node-header .grip-dot {
+    background: white;
+}
+
+/* Self-healing variant - orange */
+.node.code-self-healing .node-header {
+    background: var(--color-warning, #f59e0b);
+    color: white;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+.node.code-self-healing .node-header .grip-dot {
+    background: white;
+}
+
+/* When code is running, highlight the header */
+.node.code .code-node-content.code-running ~ .node-header {
+    background: var(--color-accent, #4a9eff);
+    color: white;
+}
+
+/* Self-healing variants */
+.node.code .code-node-content.code-running.code-self-healing ~ .node-header {
+    background: var(--color-warning, #f59e0b);
+    color: white;
 }
 
 /* Drag Handle */
@@ -1445,10 +1481,10 @@
     cursor: default;
 }
 
-/* When viewport-fitted, let parent .node-content handle all scrolling */
+/* When viewport-fitted, remove scroll from code-display - parent node-content handles it */
 .node.viewport-fitted .code-display {
-    max-height: none; /* Remove height limit */
-    overflow: visible; /* Don't create nested scroll context */
+    max-height: none; /* Remove height limit - grow to show all content */
+    overflow: visible; /* No scroll here - parent .node-content scrolls */
 }
 
 .code-display pre {
@@ -1480,19 +1516,27 @@
     color: white;
     font-size: 0.8em;
     text-align: center;
+    /* Hide running indicator - now shown via header color */
+    display: none;
 }
 
 .code-state-indicator.code-self-healing {
     background: var(--color-warning, #f59e0b);
     animation: pulse 1.5s ease-in-out infinite;
+    /* Show self-healing indicator with attempt count */
+    display: block;
 }
 
 .code-state-indicator.code-self-healed {
     background: var(--color-success, #10b981);
+    /* Show success badge */
+    display: block;
 }
 
 .code-state-indicator.code-self-heal-failed {
     background: var(--color-error, #ef4444);
+    /* Show failure badge */
+    display: block;
 }
 
 @keyframes pulse {
