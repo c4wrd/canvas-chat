@@ -2406,6 +2406,17 @@ class Canvas {
                     };
                     this.updateEdgesForNode(node.id, currentPos);
 
+                    // Update output panel position if present (for code nodes with drawers)
+                    const outputPanel = this.outputPanels.get(node.id);
+                    if (outputPanel) {
+                        const panelWidth = parseFloat(outputPanel.getAttribute('width'));
+                        const panelOverlap = 10;
+                        const panelX = currentPos.x + (newWidth - panelWidth) / 2;
+                        const panelY = currentPos.y + newHeight - panelOverlap;
+                        outputPanel.setAttribute('x', panelX);
+                        outputPanel.setAttribute('y', panelY);
+                    }
+
                     // Notify for real-time multiplayer sync
                     this.emit('nodeResizing', node.id, newWidth, newHeight);
                 };

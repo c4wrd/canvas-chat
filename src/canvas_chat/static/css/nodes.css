@@ -1445,6 +1445,12 @@
     cursor: default;
 }
 
+/* When viewport-fitted, let parent .node-content handle all scrolling */
+.node.viewport-fitted .code-display {
+    max-height: none; /* Remove height limit */
+    overflow: visible; /* Don't create nested scroll context */
+}
+
 .code-display pre {
     margin: 0;
     padding: 0;
