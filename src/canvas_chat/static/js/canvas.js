@@ -7,6 +7,7 @@ import { wrapNode } from './node-protocols.js';
 import { NodeType, getDefaultNodeSize } from './graph-types.js';
 import { highlightTextInHtml } from './highlight-utils.js';
 import { escapeHtmlText, truncateText } from './utils.js';
+import { findScrollableContainer } from './scroll-utils.js';
 
 class Canvas {
     // Static flag to track if marked has been configured (only configure once)
@@ -994,56 +995,39 @@ class Canvas {
             this.updateViewBox();
         } else {
             // Regular two-finger scroll (pan) - check if we should scroll node content instead
-            // Check for any scrollable container within nodes or output panels
-            // Note: .code-output-panel-body handles all scrolling for output panels
-            // Note: .code-editor-area is the scrollable area for code editor
-            // Note: .code-display is the scrollable area for syntax-highlighted code
-            const scrollableContent = e.target.closest(
-                '.node-content, .code-output-panel-body, .csv-preview, .code-error-output, .code-editor-area, .code-display'
-            );
+            // Find the best scroll container by checking which element actually has overflow
+            const scrollableContent = findScrollableContainer(e.target);
+
             if (scrollableContent) {
-                // Check if this content element is actually scrollable (has overflow: auto/scroll)
-                const style = window.getComputedStyle(scrollableContent);
-                const isScrollable =
-                    style.overflowY === 'auto' ||
-                    style.overflowY === 'scroll' ||
-                    style.overflowX === 'auto' ||
-                    style.overflowX === 'scroll';
+                // findScrollableContainer already verified overflow CSS, just check scroll direction
+                const canScrollUp = scrollableContent.scrollTop > 0;
+                const canScrollDown =
+                    scrollableContent.scrollTop < scrollableContent.scrollHeight - scrollableContent.clientHeight - 1;
+                const canScrollLeft = scrollableContent.scrollLeft > 0;
+                const canScrollRight =
+                    scrollableContent.scrollLeft < scrollableContent.scrollWidth - scrollableContent.clientWidth - 1;
 
-                if (isScrollable) {
-                    // Check if content can scroll in the wheel direction
-                    const canScrollUp = scrollableContent.scrollTop > 0;
-                    const canScrollDown =
-                        scrollableContent.scrollTop <
-                        scrollableContent.scrollHeight - scrollableContent.clientHeight - 1;
-                    const canScrollLeft = scrollableContent.scrollLeft > 0;
-                    const canScrollRight =
-                        scrollableContent.scrollLeft <
-                        scrollableContent.scrollWidth - scrollableContent.clientWidth - 1;
+                // Determine scroll direction from wheel delta
+                const scrollingDown = e.deltaY > 0;
+                const scrollingUp = e.deltaY < 0;
+                const scrollingRight = e.deltaX > 0;
+                const scrollingLeft = e.deltaX < 0;
 
-                    // Determine scroll direction from wheel delta
-                    const scrollingDown = e.deltaY > 0;
-                    const scrollingUp = e.deltaY < 0;
-                    const scrollingRight = e.deltaX > 0;
-                    const scrollingLeft = e.deltaX < 0;
+                // If content can scroll in the requested direction, let it scroll naturally
+                const shouldScrollVertically = (scrollingDown && canScrollDown) || (scrollingUp && canScrollUp);
+                const shouldScrollHorizontally = (scrollingRight && canScrollRight) || (scrollingLeft && canScrollLeft);
 
-                    // If content can scroll in the requested direction, let it scroll naturally
-                    const shouldScrollVertically = (scrollingDown && canScrollDown) || (scrollingUp && canScrollUp);
-                    const shouldScrollHorizontally =
-                        (scrollingRight && canScrollRight) || (scrollingLeft && canScrollLeft);
-
-                    if (shouldScrollVertically || shouldScrollHorizontally) {
-                        // Let the content scroll - prevent canvas from panning
-                        e.preventDefault();
-                        // Manually scroll the content to ensure it works in foreignObject
-                        if (shouldScrollVertically) {
-                            scrollableContent.scrollTop += e.deltaY;
-                        }
-                        if (shouldScrollHorizontally) {
-                            scrollableContent.scrollLeft += e.deltaX;
-                        }
-                        return;
+                if (shouldScrollVertically || shouldScrollHorizontally) {
+                    // Let the content scroll - prevent canvas from panning
+                    e.preventDefault();
+                    // Manually scroll the content to ensure it works in foreignObject
+                    if (shouldScrollVertically) {
+                        scrollableContent.scrollTop += e.deltaY;
                     }
+                    if (shouldScrollHorizontally) {
+                        scrollableContent.scrollLeft += e.deltaX;
+                    }
+                    return;
                 }
             }
 
@@ -1762,8 +1746,21 @@ class Canvas {
 
         // Create node HTML
         const div = document.createElement('div');
-        // All nodes are now viewport-fitted (fixed dimensions with scrollable content)
-        div.className = `node ${node.type} viewport-fitted`;
+
+        // Build node classes: base + type + viewport-fitted + execution state for code nodes
+        let nodeClasses = `node ${node.type} viewport-fitted`;
+        if (node.type === 'code' && node.executionState) {
+            if (node.executionState === 'running') {
+                // Check if self-healing to use different styling
+                if (node.selfHealingStatus === 'verifying' || node.selfHealingAttempt) {
+                    nodeClasses += ' code-self-healing';
+                } else {
+                    nodeClasses += ' code-running';
+                }
+            }
+        }
+
+        div.className = nodeClasses;
         div.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
         div.style.width = '100%';
         div.style.height = '100%';
@@ -2405,6 +2402,17 @@ class Canvas {
                         y: parseFloat(wrapper.getAttribute('y')),
                     };
                     this.updateEdgesForNode(node.id, currentPos);
+
+                    // Update output panel position if present (for code nodes with drawers)
+                    const outputPanel = this.outputPanels.get(node.id);
+                    if (outputPanel) {
+                        const panelWidth = parseFloat(outputPanel.getAttribute('width'));
+                        const panelOverlap = 10;
+                        const panelX = currentPos.x + (newWidth - panelWidth) / 2;
+                        const panelY = currentPos.y + newHeight - panelOverlap;
+                        outputPanel.setAttribute('x', panelX);
+                        outputPanel.setAttribute('y', panelY);
+                    }
 
                     // Notify for real-time multiplayer sync
                     this.emit('nodeResizing', node.id, newWidth, newHeight);
