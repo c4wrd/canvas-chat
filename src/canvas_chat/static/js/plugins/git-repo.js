@@ -33,29 +33,13 @@ export class GitRepoFeature extends FeaturePlugin {
      * @param {string} url - URL to check
      * @returns {boolean} True if URL matches git repository patterns
      */
+    // Note: isGitRepositoryUrl is no longer used - URL routing is handled by backend UrlFetchRegistry
+    // This method is kept for backward compatibility but should not be called
     isGitRepositoryUrl(url) {
-        // Exclude known non-git URLs
-        const nonGitHosts = ['arxiv.org', 'doi.org', 'pubmed.ncbi.nlm.nih.gov'];
-        try {
-            const urlObj = new URL(url);
-            if (nonGitHosts.includes(urlObj.hostname.toLowerCase())) {
-                return false;
-            }
-        } catch (e) {
-            // Invalid URL, not a git repo
-            return false;
-        }
-
-        const gitPatterns = [
-            // Known git hosting platforms
-            /^https?:\/\/(github|gitlab|bitbucket|gitea|codeberg)\.(com|org)\/[\w\-\.]+\/[\w\-\.]+(?:\.git)?\/?$/i,
-            // SSH git URLs
-            /^git@[\w\-\.]+:[\w\-\.]+\/[\w\-\.]+(?:\.git)?$/,
-            // Generic git URLs (must end with .git or have specific git patterns)
-            // More restrictive: require .git extension or match known git hosting patterns
-            /^https?:\/\/[\w\-\.]+\/[\w\-\.]+\/[\w\-\.]+\.git\/?$/i,
-        ];
-        return gitPatterns.some((pattern) => pattern.test(url));
+        // Deprecated: URL routing is now handled by backend UrlFetchRegistry
+        // This method may be removed in the future
+        console.warn('[GitRepoFeature] isGitRepositoryUrl() is deprecated - use backend routing instead');
+        return false;
     }
 
     /**

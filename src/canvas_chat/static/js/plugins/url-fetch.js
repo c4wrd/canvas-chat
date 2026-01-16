@@ -41,17 +41,23 @@ export class UrlFetchFeature extends FeaturePlugin {
             return;
         }
 
-        // Check if URL is a git repository and delegate to GitRepoFeature
-        try {
-            const gitRepoFeature = this.featureRegistry?.getFeature('git-repo');
-            if (gitRepoFeature && gitRepoFeature.isGitRepositoryUrl(url)) {
-                // Delegate to GitRepoFeature
-                await gitRepoFeature.handleGitUrl(url);
-                return;
+        // Check if URL supports file selection (e.g., git repos) via backend registry
+        // This uses the unified backend UrlFetchRegistry to determine handler
+        const supportsFileSelection = await this.checkUrlSupportsFileSelection(url);
+
+        if (supportsFileSelection) {
+            // URL supports file selection - delegate to GitRepoFeature for now
+            // (In future, this could be more generic and route to any handler that supports file selection)
+            try {
+                const gitRepoFeature = this.featureRegistry?.getFeature('git-repo');
+                if (gitRepoFeature) {
+                    await gitRepoFeature.handleGitUrl(url);
+                    return;
+                }
+            } catch (err) {
+                console.warn('[UrlFetchFeature] GitRepoFeature not available, falling back to regular fetch:', err);
+                // Fall through to regular URL fetching
             }
-        } catch (err) {
-            // GitRepoFeature not available, fall through to regular URL fetching
-            console.warn('[UrlFetchFeature] GitRepoFeature not available, using regular fetch:', err);
         }
 
         // Check if URL is a PDF
@@ -61,8 +67,46 @@ export class UrlFetchFeature extends FeaturePlugin {
             // Fetch PDF and extract text
             await this.handlePdfUrl(url);
         } else {
-            // Fetch URL content and create a FETCH_RESULT node
+            // Fetch URL content via unified backend endpoint
+            // Backend will route to appropriate handler via UrlFetchRegistry
             await this.handleWebUrl(url);
+        }
+    }
+
+    /**
+     * Check if URL supports file selection by querying backend registry
+     * @param {string} url - URL to check
+     * @returns {Promise<boolean>} True if URL supports file selection
+     */
+    async checkUrlSupportsFileSelection(url) {
+        try {
+            // Try to list files - if endpoint exists and handler supports it, URL supports file selection
+            const response = await fetch(apiUrl('/api/url-fetch/list-files'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url, git_credentials: {} }), // Empty credentials for check
+            });
+
+            // If we get a response (even if it fails due to auth), the handler supports file listing
+            // Only return false if handler doesn't exist or doesn't support file listing
+            if (response.status === 400) {
+                const error = await response.json();
+                // "not supported by any registered handler" means no handler for this URL
+                // "does not support file listing" means handler exists but no file selection
+                if (error.detail?.includes('not supported by any registered handler') ||
+                    error.detail?.includes('does not support file listing')) {
+                    return false;
+                }
+                // Other 400 errors (like auth) mean the handler exists and supports file listing
+                return true;
+            }
+
+            // 200 means handler exists and supports file listing
+            return response.ok;
+        } catch (err) {
+            // Network error or other issue - assume no file selection support
+            console.warn('[UrlFetchFeature] Error checking file selection support:', err);
+            return false;
         }
     }
 
