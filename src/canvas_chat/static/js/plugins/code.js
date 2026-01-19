@@ -415,36 +415,38 @@ export class CodeFeature extends FeaturePlugin {
 
         // Setup Generate Code modal event listeners
         const modal = this.modalManager.getPluginModal('code', 'generate');
-        const closeBtn = modal.querySelector('#generate-code-close');
-        const cancelBtn = modal.querySelector('#generate-code-cancel');
-        const generateBtn = modal.querySelector('#generate-code-btn');
-        const input = modal.querySelector('#generate-code-input');
+        const closeBtn = modal?.querySelector('#generate-code-close');
+        const cancelBtn = modal?.querySelector('#generate-code-cancel');
+        const generateBtn = modal?.querySelector('#generate-code-btn');
+        const input = modal?.querySelector('#generate-code-input');
 
-        let currentNodeId = null;
+        // Store references for the class method to use
+        this._generateModal = modal;
+        this._generateInput = input;
 
         const handleGenerate = async () => {
             const prompt = input.value.trim();
-            if (!prompt || !currentNodeId) return;
+            if (!prompt || !this._generateNodeId) return;
 
             // Hide modal
             modal.style.display = 'none';
 
             // Use currently selected model
             const model = this.modelPicker.value;
-            await this.handleNodeGenerateSubmit(currentNodeId, prompt, model);
-            currentNodeId = null;
+            await this.handleNodeGenerateSubmit(this._generateNodeId, prompt, model);
+            this._generateNodeId = null;
         };
 
         if (closeBtn) {
             closeBtn.addEventListener('click', () => {
                 modal.style.display = 'none';
-                currentNodeId = null;
+                this._generateNodeId = null;
             });
         }
         if (cancelBtn) {
             cancelBtn.addEventListener('click', () => {
                 modal.style.display = 'none';
-                currentNodeId = null;
+                this._generateNodeId = null;
             });
         }
         if (generateBtn) {
@@ -457,20 +459,15 @@ export class CodeFeature extends FeaturePlugin {
                     handleGenerate();
                 } else if (e.key === 'Escape') {
                     modal.style.display = 'none';
-                    currentNodeId = null;
+                    this._generateNodeId = null;
                 }
             };
         }
 
-        // Store for handleNodeGenerate to use
-        this._generateModal = modal;
-        this._generateInput = input;
-        this._generateNodeId = null;
-
-        // Override handleNodeGenerate to use registered modal
-        const originalHandleNodeGenerate = this.handleNodeGenerate.bind(this);
+        // Store nodeId when handleNodeGenerate is called (from canvas event)
+        // The original class method sets this._generateNodeId, which we read here
         this.handleNodeGenerate = async (nodeId) => {
-            currentNodeId = nodeId; // Use the same variable as the event handlers
+            this._generateNodeId = nodeId;
             input.value = '';
             this.modalManager.showPluginModal('code', 'generate');
             input.focus();
