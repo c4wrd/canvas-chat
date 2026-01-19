@@ -1287,6 +1287,73 @@ class App {
         // Clear input and selection
         this.chatInput.value = '';
         this.canvas.clearSelection();
+
+        // Create AI response node and stream response
+        const model = this.modelPicker.value;
+        const aiNode = createNode(NodeType.AI, '', {
+            position: this.graph.autoPosition([humanNode.id]),
+            model: model.split('/').pop(),
+        });
+
+        this.addUserNode(aiNode);
+
+        const aiEdge = createEdge(humanNode.id, aiNode.id, EdgeType.REPLY);
+        this.graph.addEdge(aiEdge);
+
+        // Update collapse button for human node (now has AI child)
+        this.updateCollapseButtonForNode(humanNode.id);
+
+        // Build context and stream LLM response
+        const context = this.graph.resolveContext([humanNode.id]);
+        const messages = buildMessagesForApi(context);
+
+        // Create AbortController for this stream
+        const abortController = new AbortController();
+
+        // Register with StreamingManager (auto-shows stop button)
+        this.streamingManager.register(aiNode.id, {
+            abortController,
+            featureId: 'ai',
+            context: { messages, model, humanNodeId: humanNode.id },
+            onContinue: async (nodeId, state) => {
+                // Resume streaming from where we left off
+                await this.continueAIResponse(nodeId, state.context);
+            },
+        });
+
+        // Stream response using streamWithAbort
+        this.streamWithAbort(
+            aiNode.id,
+            abortController,
+            messages,
+            model,
+            // onChunk
+            (chunk, fullContent) => {
+                this.canvas.updateNodeContent(aiNode.id, fullContent, true);
+                this.graph.updateNode(aiNode.id, { content: fullContent });
+            },
+            // onDone
+            (fullContent) => {
+                this.streamingManager.unregister(aiNode.id); // Auto-hides stop button
+                this.canvas.updateNodeContent(aiNode.id, fullContent, false);
+                this.graph.updateNode(aiNode.id, { content: fullContent });
+                this.saveSession();
+                this.generateNodeSummary(aiNode.id);
+            },
+            // onError
+            (err) => {
+                this.streamingManager.unregister(aiNode.id); // Auto-hides stop button
+
+                // Format and display user-friendly error
+                const errorInfo = formatUserError(err);
+                this.showNodeError(aiNode.id, errorInfo, {
+                    type: 'chat',
+                    messages,
+                    model,
+                    humanNodeId: humanNode.id,
+                });
+            }
+        );
     }
 
     /**
