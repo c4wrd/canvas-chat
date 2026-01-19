@@ -623,6 +623,170 @@ class MatrixFeature extends FeaturePlugin {
             </div>
         `;
         this.modalManager.registerModal('matrix', 'slice', sliceModalTemplate);
+
+        // Matrix creation modal event listeners
+        const createModal = this.modalManager.getPluginModal('matrix', 'create');
+        const matrixCloseBtn = createModal.querySelector('#matrix-close');
+        const matrixCancelBtn = createModal.querySelector('#matrix-cancel-btn');
+        const swapAxesBtn = createModal.querySelector('#swap-axes-btn');
+        const matrixCreateBtn = createModal.querySelector('#matrix-create-btn');
+        const addRowBtn = createModal.querySelector('#add-row-btn');
+        const addColBtn = createModal.querySelector('#add-col-btn');
+
+        if (matrixCloseBtn) {
+            matrixCloseBtn.addEventListener('click', () => {
+                createModal.style.display = 'none';
+                this._matrixData = null;
+            });
+        }
+        if (matrixCancelBtn) {
+            matrixCancelBtn.addEventListener('click', () => {
+                createModal.style.display = 'none';
+                this._matrixData = null;
+            });
+        }
+        if (swapAxesBtn) {
+            swapAxesBtn.addEventListener('click', () => {
+                this.swapMatrixAxes();
+            });
+        }
+        if (matrixCreateBtn) {
+            matrixCreateBtn.addEventListener('click', () => {
+                this.createMatrixNode();
+            });
+        }
+        if (addRowBtn) {
+            addRowBtn.addEventListener('click', () => {
+                this.addAxisItem('row-items');
+            });
+        }
+        if (addColBtn) {
+            addColBtn.addEventListener('click', () => {
+                this.addAxisItem('col-items');
+            });
+        }
+
+        // Edit matrix modal event listeners
+        const editModal = this.modalManager.getPluginModal('matrix', 'edit');
+        const editMatrixCloseBtn = editModal.querySelector('#edit-matrix-close');
+        const editMatrixCancelBtn = editModal.querySelector('#edit-matrix-cancel-btn');
+        const editSwapAxesBtn = editModal.querySelector('#edit-swap-axes-btn');
+        const editSaveBtn = editModal.querySelector('#edit-matrix-save-btn');
+        const editAddRowBtn = editModal.querySelector('#edit-add-row-btn');
+        const editAddColBtn = editModal.querySelector('#edit-add-col-btn');
+
+        if (editMatrixCloseBtn) {
+            editMatrixCloseBtn.addEventListener('click', () => {
+                editModal.style.display = 'none';
+                this._editMatrixData = null;
+            });
+        }
+        if (editMatrixCancelBtn) {
+            editMatrixCancelBtn.addEventListener('click', () => {
+                editModal.style.display = 'none';
+                this._editMatrixData = null;
+            });
+        }
+        if (editSwapAxesBtn) {
+            editSwapAxesBtn.addEventListener('click', () => {
+                this.swapEditMatrixAxes();
+            });
+        }
+        if (editAddRowBtn) {
+            editAddRowBtn.addEventListener('click', () => {
+                this.addAxisItem('edit-row-items');
+            });
+        }
+        if (editAddColBtn) {
+            editAddColBtn.addEventListener('click', () => {
+                this.addAxisItem('edit-col-items');
+            });
+        }
+        if (editSaveBtn) {
+            editSaveBtn.addEventListener('click', () => {
+                this.saveMatrixEdits();
+            });
+        }
+
+        // Cell detail modal event listeners
+        const cellModal = this.modalManager.getPluginModal('matrix', 'cell');
+        const cellCloseBtn = cellModal.querySelector('#cell-close');
+        const cellCloseBtn2 = cellModal.querySelector('#cell-close-btn');
+        const cellPinBtn = cellModal.querySelector('#cell-pin-btn');
+        const cellCopyBtn = cellModal.querySelector('#cell-copy-btn');
+
+        if (cellCloseBtn) {
+            cellCloseBtn.addEventListener('click', () => {
+                cellModal.style.display = 'none';
+            });
+        }
+        if (cellCloseBtn2) {
+            cellCloseBtn2.addEventListener('click', () => {
+                cellModal.style.display = 'none';
+            });
+        }
+        if (cellPinBtn) {
+            cellPinBtn.addEventListener('click', () => {
+                this.pinCellToCanvas();
+            });
+        }
+        if (cellCopyBtn) {
+            cellCopyBtn.addEventListener('click', async () => {
+                const content = document.getElementById('cell-content').textContent;
+                const btn = document.getElementById('cell-copy-btn');
+                try {
+                    await navigator.clipboard.writeText(content);
+                    const originalText = btn.textContent;
+                    btn.textContent = '✓';
+                    setTimeout(() => {
+                        btn.textContent = originalText;
+                    }, 1500);
+                } catch (err) {
+                    console.error('Failed to copy:', err);
+                }
+            });
+        }
+
+        // Slice detail modal event listeners
+        const sliceModal = this.modalManager.getPluginModal('matrix', 'slice');
+        const sliceCloseBtn = sliceModal.querySelector('#slice-close');
+        const sliceCloseBtn2 = sliceModal.querySelector('#slice-close-btn');
+        const slicePinBtn = sliceModal.querySelector('#slice-pin-btn');
+        const sliceCopyBtn = sliceModal.querySelector('#slice-copy-btn');
+
+        if (sliceCloseBtn) {
+            sliceCloseBtn.addEventListener('click', () => {
+                sliceModal.style.display = 'none';
+                this._currentSliceData = null;
+            });
+        }
+        if (sliceCloseBtn2) {
+            sliceCloseBtn2.addEventListener('click', () => {
+                sliceModal.style.display = 'none';
+                this._currentSliceData = null;
+            });
+        }
+        if (slicePinBtn) {
+            slicePinBtn.addEventListener('click', () => {
+                this.pinSliceToCanvas();
+            });
+        }
+        if (sliceCopyBtn) {
+            sliceCopyBtn.addEventListener('click', async () => {
+                const content = document.getElementById('slice-content').textContent;
+                const btn = document.getElementById('slice-copy-btn');
+                try {
+                    await navigator.clipboard.writeText(content);
+                    const originalText = btn.textContent;
+                    btn.textContent = '✓';
+                    setTimeout(() => {
+                        btn.textContent = originalText;
+                    }, 1500);
+                } catch (err) {
+                    console.error('Failed to copy:', err);
+                }
+            });
+        }
     }
 
     /**
@@ -1515,6 +1679,22 @@ class MatrixFeature extends FeaturePlugin {
         this._currentSliceData = null;
         // StreamingManager handles cleanup via clear() when session changes
         this.streamingMatrixCells.clear();
+    }
+
+    /**
+     * Get canvas event handlers for matrix functionality.
+     * @returns {Object} Event name -> handler function mapping
+     */
+    getCanvasEventHandlers() {
+        return {
+            matrixCellFill: this.handleMatrixCellFill.bind(this),
+            matrixCellView: this.handleMatrixCellView.bind(this),
+            matrixFillAll: this.handleMatrixFillAll.bind(this),
+            matrixRowExtract: this.handleMatrixRowExtract.bind(this),
+            matrixColExtract: this.handleMatrixColExtract.bind(this),
+            matrixEdit: this.handleMatrixEdit.bind(this),
+            matrixIndexColResize: this.handleMatrixIndexColResize.bind(this),
+        };
     }
 }
 

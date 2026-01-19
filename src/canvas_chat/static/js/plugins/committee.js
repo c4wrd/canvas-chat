@@ -149,6 +149,28 @@ class CommitteeFeature extends FeaturePlugin {
         `;
 
         this.modalManager.registerModal('committee', 'main', modalTemplate);
+
+        // Committee modal event listeners
+        const modal = this.modalManager.getPluginModal('committee', 'main');
+        const closeBtn = modal.querySelector('#committee-close');
+        const cancelBtn = modal.querySelector('#committee-cancel-btn');
+        const executeBtn = modal.querySelector('#committee-execute-btn');
+
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                this.closeModal();
+            });
+        }
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => {
+                this.closeModal();
+            });
+        }
+        if (executeBtn) {
+            executeBtn.addEventListener('click', () => {
+                this.executeCommittee();
+            });
+        }
     }
 
     /**

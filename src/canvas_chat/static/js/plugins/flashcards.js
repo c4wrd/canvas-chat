@@ -821,6 +821,18 @@ ${gradingRules}
             toast.classList.remove('hiding');
         }, 300);
     }
+
+    /**
+     * Get canvas event handlers for flashcard functionality.
+     * @returns {Object} Event name -> handler function mapping
+     */
+    getCanvasEventHandlers() {
+        return {
+            createFlashcards: this.handleCreateFlashcards.bind(this),
+            reviewCard: this.reviewSingleCard.bind(this),
+            flipCard: this.handleFlipCard.bind(this),
+        };
+    }
 }
 
 // =============================================================================
