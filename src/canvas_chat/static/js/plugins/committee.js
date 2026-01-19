@@ -105,7 +105,7 @@ class CommitteeFeature extends FeaturePlugin {
                             </div>
                             <div class="committee-suggestions-container" id="committee-suggestions-container">
                                 <div class="committee-suggestions-loading">
-                                    <span class="spinner">⟳</span> Generating persona suggestions...
+                                    <span class="loading-spinner"></span> Generating persona suggestions...
                                 </div>
                             </div>
                         </div>

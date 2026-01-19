@@ -74,7 +74,7 @@ class FactcheckNode extends BaseNode {
                     <div class="factcheck-claim-header">
                         <span class="factcheck-badge">${badge}</span>
                         <span class="factcheck-claim-text">${canvas.escapeHtml(claim.text)}</span>
-                        ${isChecking ? '<span class="factcheck-spinner">⟳</span>' : '<span class="factcheck-toggle">▼</span>'}
+                        ${isChecking ? '<span class="loading-spinner factcheck-inline-spinner"></span>' : '<span class="factcheck-toggle">▼</span>'}
                     </div>
                     ${detailsHtml}
                 </div>
@@ -288,9 +288,7 @@ class FactcheckFeature extends FeaturePlugin {
                         refined === 'verify this' ||
                         refined.length < 10
                     ) {
-                        console.warn(
-                            '[Factcheck] Refine returned unhelpful result, using context directly'
-                        );
+                        console.warn('[Factcheck] Refine returned unhelpful result, using context directly');
                         effectiveInput = selectedContext;
                     } else {
                         effectiveInput = refined;
@@ -547,9 +545,7 @@ class FactcheckFeature extends FeaturePlugin {
                 const preservedClaims = claimsData.map((newClaim, index) => {
                     const existingClaim = existingClaims[index];
                     // If text matches and claim is already verified, preserve it
-                    if (existingClaim &&
-                        existingClaim.text === newClaim.text &&
-                        existingClaim.status !== 'checking') {
+                    if (existingClaim && existingClaim.text === newClaim.text && existingClaim.status !== 'checking') {
                         return existingClaim; // Keep the existing verified claim
                     }
                     return newClaim; // Use new claim (either new text or still checking)
@@ -607,11 +603,14 @@ class FactcheckFeature extends FeaturePlugin {
         );
 
         const results = await Promise.allSettled(verificationPromises);
-        console.log(`[Factcheck] All verifications complete. Results:`, results.map((r, i) => ({
-            index: i,
-            status: r.status,
-            error: r.status === 'rejected' ? r.reason : null,
-        })));
+        console.log(
+            `[Factcheck] All verifications complete. Results:`,
+            results.map((r, i) => ({
+                index: i,
+                status: r.status,
+                error: r.status === 'rejected' ? r.reason : null,
+            }))
+        );
 
         // Final save after all verifications complete
         this.saveSession();
