@@ -612,21 +612,6 @@ class App {
         this.canvas.on('nodeAnalyze', (nodeId) => this.handleNodeAnalyze(nodeId));
     }
 
-    /**
-     * Register canvas event handlers from all features.
-     * Iterates through registered features and registers their handlers if they provide getCanvasEventHandlers().
-     */
-    registerFeatureCanvasHandlers() {
-        for (const feature of this.featureRegistry.getAllFeatures()) {
-            if (typeof feature.getCanvasEventHandlers === 'function') {
-                const handlers = feature.getCanvasEventHandlers();
-                for (const [eventName, handler] of Object.entries(handlers)) {
-                    this.canvas.on(eventName, handler);
-                }
-            }
-        }
-    }
-
     setupEventListeners() {
         // Attach slash command menu to chat input
         this.slashCommandMenu.attach(this.chatInput);
@@ -2380,8 +2365,7 @@ print("Hello from Pyodide!")
         // Register all built-in features (handles 6 features automatically)
         await this.featureRegistry.registerBuiltInFeatures();
 
-        // Register feature canvas event handlers (must happen after features are registered)
-        this.registerFeatureCanvasHandlers();
+        // Note: Canvas event handlers are already registered by featureRegistry.register()
 
         // Inject FeatureRegistry into slash command menu so it can show feature plugin commands
         setFeatureRegistry(this.featureRegistry);
