@@ -345,6 +345,9 @@ class MockApp {
         this.adminMode = false;
         this.adminModels = [];
 
+        // Flag for user-initiated node creation (used by addUserNode)
+        this._userNodeCreation = false;
+
         // Track method calls
         this.methodCalls = {
             showToast: [],

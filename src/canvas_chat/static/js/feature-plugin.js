@@ -140,6 +140,7 @@ class FeaturePlugin {
         this.updateCollapseButtonForNode = context.updateCollapseButtonForNode;
         this.buildLLMRequest = context.buildLLMRequest;
         this.generateNodeSummary = context.generateNodeSummary;
+        this.addUserNode = context.addUserNode;
 
         // Legacy streaming state management (for backwards compatibility)
         // TODO: Remove after all features migrated to StreamingManager
@@ -155,6 +156,12 @@ class FeaturePlugin {
         // Admin mode (set once during init, safe to copy)
         this.adminMode = context.adminMode;
         this.adminModels = context.adminModels;
+
+        // Method to add nodes with auto-zoom for user-initiated creation
+        this.addUserNode = (node) => {
+            this._app._userNodeCreation = true;
+            this._app.graph.addNode(node);
+        };
     }
 
     /**
@@ -166,11 +173,29 @@ class FeaturePlugin {
     }
 
     /**
+     * Get app instance for internal use (e.g., addUserNode)
+     * @returns {Object|null}
+     */
+    get _app() {
+        return this._context._app;
+    }
+
+    /**
      * Get search index (live reference - created during session load, after plugins)
      * @returns {SearchIndex|null}
      */
     get searchIndex() {
         return this._context.searchIndex;
+    }
+
+    /**
+     * Add a node with automatic zoom-to-node for user-initiated creation.
+     * This sets a flag that causes the app's nodeAdded handler to zoom to the new node.
+     *
+     * @param {Object} node - The node to add
+     */
+    addUserNode(node) {
+        this._context.addUserNode(node);
     }
 
     /**

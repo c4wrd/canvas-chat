@@ -107,15 +107,11 @@ export class NoteFeature extends FeaturePlugin {
             position: this.graph.autoPosition(parentIds),
         });
 
-        this.graph.addNode(noteNode);
+        this.addUserNode(noteNode);
 
         // Create edges from parents (if replying to selected nodes)
         for (const parentId of parentIds) {
-            const edge = createEdge(
-                parentId,
-                noteNode.id,
-                parentIds.length > 1 ? EdgeType.MERGE : EdgeType.REPLY
-            );
+            const edge = createEdge(parentId, noteNode.id, parentIds.length > 1 ? EdgeType.MERGE : EdgeType.REPLY);
             this.graph.addEdge(edge);
         }
 
@@ -125,11 +121,7 @@ export class NoteFeature extends FeaturePlugin {
         this.canvas.clearSelection();
         this.saveSession?.();
         this.updateEmptyState?.();
-
-        // Pan to the new note
-        this.canvas.centerOnAnimated(noteNode.position.x + 160, noteNode.position.y + 100, 300);
     }
-
 }
 
 console.log('Note plugin loaded (node protocol + feature)');

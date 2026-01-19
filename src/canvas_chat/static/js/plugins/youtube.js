@@ -48,16 +48,12 @@ export class YouTubeFeature extends FeaturePlugin {
             position: this.graph.autoPosition(parentIds),
         });
 
-        this.graph.addNode(fetchNode);
+        this.addUserNode(fetchNode);
         this.canvas.clearSelection();
 
         // Create edges from parents (if replying to selected nodes)
         for (const parentId of parentIds) {
-            const edge = createEdge(
-                parentId,
-                fetchNode.id,
-                parentIds.length > 1 ? EdgeType.MERGE : EdgeType.REPLY
-            );
+            const edge = createEdge(parentId, fetchNode.id, parentIds.length > 1 ? EdgeType.MERGE : EdgeType.REPLY);
             this.graph.addEdge(edge);
         }
 
