@@ -385,93 +385,10 @@ export class CodeFeature extends FeaturePlugin {
     async onLoad() {
         console.log('[CodeFeature] Loaded - self-healing enabled');
 
-        // Register Generate Code modal
-        const modalTemplate = `
-            <div id="generate-code-modal" class="modal" style="display: none">
-                <div class="modal-content modal-narrow">
-                    <div class="modal-header">
-                        <h2>Generate Code</h2>
-                        <button class="modal-close" id="generate-code-close">&times;</button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="api-key-group">
-                            <label for="generate-code-input">What should the code do?</label>
-                            <textarea
-                                id="generate-code-input"
-                                class="modal-text-input"
-                                rows="4"
-                                placeholder="Describe what you want the code to do..."
-                            ></textarea>
-                        </div>
-                        <div class="modal-actions">
-                            <button id="generate-code-cancel" class="secondary-btn">Cancel</button>
-                            <button id="generate-code-btn" class="primary-btn">Generate</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-        this.modalManager.registerModal('code', 'generate', modalTemplate);
-
-        // Setup Generate Code modal event listeners
-        const modal = this.modalManager.getPluginModal('code', 'generate');
-        const closeBtn = modal?.querySelector('#generate-code-close');
-        const cancelBtn = modal?.querySelector('#generate-code-cancel');
-        const generateBtn = modal?.querySelector('#generate-code-btn');
-        const input = modal?.querySelector('#generate-code-input');
-
-        // Store references for the class method to use
-        this._generateModal = modal;
-        this._generateInput = input;
-
-        const handleGenerate = async () => {
-            const prompt = input.value.trim();
-            if (!prompt || !this._generateNodeId) return;
-
-            // Hide modal
-            modal.style.display = 'none';
-
-            // Use currently selected model
-            const model = this.modelPicker.value;
-            await this.handleNodeGenerateSubmit(this._generateNodeId, prompt, model);
-            this._generateNodeId = null;
-        };
-
-        if (closeBtn) {
-            closeBtn.addEventListener('click', () => {
-                modal.style.display = 'none';
-                this._generateNodeId = null;
-            });
-        }
-        if (cancelBtn) {
-            cancelBtn.addEventListener('click', () => {
-                modal.style.display = 'none';
-                this._generateNodeId = null;
-            });
-        }
-        if (generateBtn) {
-            generateBtn.addEventListener('click', handleGenerate);
-        }
-        if (input) {
-            input.onkeydown = (e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleGenerate();
-                } else if (e.key === 'Escape') {
-                    modal.style.display = 'none';
-                    this._generateNodeId = null;
-                }
-            };
-        }
-
-        // Store nodeId when handleNodeGenerate is called (from canvas event)
-        // The original class method sets this._generateNodeId, which we read here
-        this.handleNodeGenerate = async (nodeId) => {
-            this._generateNodeId = nodeId;
-            input.value = '';
-            this.modalManager.showPluginModal('code', 'generate');
-            input.focus();
-        };
+        // Handle nodeGenerateSubmit from inline AI input (emitted by CodeNode.showGenerateUI)
+        this.canvas.on('nodeGenerateSubmit', async (nodeId, prompt, model) => {
+            await this.handleNodeGenerateSubmit(nodeId, prompt, model);
+        });
     }
 
     /**
@@ -889,7 +806,6 @@ Output ONLY the corrected Python code, no explanations.`;
             nodeRunCode: this.handleNodeRunCode.bind(this),
             nodeCodeChange: this.handleNodeCodeChange.bind(this),
             nodeGenerate: this.handleNodeGenerate.bind(this),
-            nodeGenerateSubmit: this.handleNodeGenerateSubmit.bind(this),
             nodeOutputToggle: this.handleNodeOutputToggle.bind(this),
             nodeOutputClear: this.handleNodeOutputClear.bind(this),
             nodeOutputResize: this.handleNodeOutputResize.bind(this),
@@ -1034,29 +950,23 @@ Output ONLY the corrected Python code, no explanations.`;
     }
 
     /**
-     * Handle Generate button click on Code node
+     * Handle Generate button click on Code node - shows inline AI input
      * @param {string} nodeId - The Code node ID
      */
     async handleNodeGenerate(nodeId) {
         const node = this.graph.getNode(nodeId);
         if (!node) return;
 
-        // Show modal to get generation prompt
-        const modal = this._generateModal;
-        const input = this._generateInput;
+        // Get models from the model picker
+        const modelOptions = Array.from(this.modelPicker.options).map((opt) => ({
+            id: opt.value,
+            name: opt.textContent,
+        }));
+        const currentModel = this.modelPicker.value;
 
-        if (!modal || !input) {
-            console.error('Generate code modal not found');
-            return;
-        }
-
-        // Store nodeId for when user clicks Generate
-        this._generateNodeId = nodeId;
-
-        // Clear input and show modal
-        input.value = '';
-        this.modalManager.showPluginModal('code', 'generate');
-        input.focus();
+        // Show inline AI input using the protocol's showGenerateUI method
+        const wrapped = wrapNode(node);
+        wrapped.showGenerateUI(nodeId, modelOptions, currentModel, this.canvas, this);
     }
 
     /**
