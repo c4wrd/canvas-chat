@@ -470,7 +470,7 @@ export class CodeFeature extends FeaturePlugin {
         // Override handleNodeGenerate to use registered modal
         const originalHandleNodeGenerate = this.handleNodeGenerate.bind(this);
         this.handleNodeGenerate = async (nodeId) => {
-            currentNodeId = nodeId;
+            currentNodeId = nodeId; // Use the same variable as the event handlers
             input.value = '';
             this.modalManager.showPluginModal('code', 'generate');
             input.focus();
@@ -888,6 +888,7 @@ Output ONLY the corrected Python code, no explanations.`;
      */
     getCanvasEventHandlers() {
         return {
+            nodeEditCode: this.handleNodeEditCode.bind(this),
             nodeRunCode: this.handleNodeRunCode.bind(this),
             nodeCodeChange: this.handleNodeCodeChange.bind(this),
             nodeGenerate: this.handleNodeGenerate.bind(this),
@@ -1024,6 +1025,15 @@ Output ONLY the corrected Python code, no explanations.`;
         }
 
         this.saveSession();
+    }
+
+    /**
+     * Handle Edit button click on Code node - opens edit modal
+     * @param {string} nodeId - The Code node ID
+     */
+    async handleNodeEditCode(nodeId) {
+        // Emit nodeEditContent for the app's edit-content modal handler
+        this.canvas.emit('nodeEditContent', nodeId);
     }
 
     /**
