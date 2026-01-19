@@ -243,7 +243,7 @@ class Chat {
             messages,
             model,
             api_key: apiKey,
-            temperature: 0.3, // Lower temperature for structured outputs
+            temperature: 0.3,
         };
 
         if (baseUrl) {
@@ -264,25 +264,38 @@ class Chat {
                 throw new Error(errorData.detail || `HTTP error: ${response.status}`);
             }
 
-            // Collect full response from SSE stream
             let fullContent = '';
 
             await readSSEStream(response, {
                 onEvent: (eventType, data) => {
                     if (eventType === 'message' && data) {
                         fullContent += data;
+                        if (onChunk) {
+                            onChunk(data, fullContent);
+                        }
                     }
                 },
-                onDone: () => {},
+                onDone: () => {
+                    if (onDone) {
+                        onDone(normalizeText(fullContent));
+                    }
+                },
                 onError: (err) => {
+                    if (onError) {
+                        onError(err);
+                    }
                     throw err;
                 },
             });
 
-            return normalizeText(fullContent);
+            const normalized = normalizeText(fullContent);
+            return normalized;
         } catch (err) {
             const handledError = this.handleCopilotAuthError(err);
             console.error('Chat error:', handledError);
+            if (onError) {
+                onError(handledError);
+            }
             throw handledError;
         }
     }
