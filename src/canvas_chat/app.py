@@ -54,6 +54,7 @@ from canvas_chat.file_upload_registry import FileUploadRegistry
 from canvas_chat.plugins import (
     code_handler,  # noqa: F401
     git_repo_handler,  # noqa: F401
+    matrix_handler,  # noqa: F401
     pdf_handler,  # noqa: F401
     pdf_url_handler,  # noqa: F401
     youtube_handler,  # noqa: F401
@@ -73,6 +74,7 @@ app = FastAPI(title="Canvas Chat", version=__version__)
 # Register plugin-specific endpoints (must be after app creation)
 git_repo_handler.register_endpoints(app)
 code_handler.register_endpoints(app)
+matrix_handler.register_endpoints(app)
 
 # --- Configuration Management ---
 # This is initialized at module load time based on environment variables
@@ -3070,124 +3072,6 @@ class GenerateSummaryRequest(BaseModel):
     model: str = "openai/gpt-4o-mini"
     api_key: str | None = None
     base_url: str | None = None
-
-
-class ParseTwoListsRequest(BaseModel):
-    """Request body for parsing two lists from context nodes."""
-
-    contents: list[str]  # Content from all selected context nodes
-    context: str  # User-provided matrix context to help identify the two lists
-    model: str = "openai/gpt-4o-mini"
-    api_key: str | None = None
-    base_url: str | None = None
-
-
-@app.post("/api/parse-two-lists")
-async def parse_two_lists(request: ParseTwoListsRequest):
-    """
-    Use LLM to extract two separate lists from context node contents.
-
-    Returns two lists: one for rows, one for columns (max 10 each).
-    """
-    # Inject admin credentials if in admin mode
-    inject_admin_credentials(request)
-
-    combined_content = "\n\n---\n\n".join(request.contents)
-    logger.info(
-        f"Parse two lists request: {len(request.contents)} nodes, "
-        f"total length={len(combined_content)}, "
-        f"context={request.context[:50]}..."
-    )
-
-    provider = extract_provider(request.model)
-
-    system_prompt = f"""The user wants to create a matrix/table for: {request.context}
-
-Extract TWO separate lists from the following text as SHORT LABELS for matrix rows and columns.
-
-Rules:
-- Return ONLY a JSON object with "rows" and "columns" arrays, no other text
-- Extract just the NAME or LABEL of each item, not descriptions
-- For example: "GitHub Copilot: $10/month..." → "GitHub Copilot" (not the full text)
-- Look for two naturally separate categories (e.g., products vs attributes, services vs features)  # noqa: E501
-- If the text uses "vs" or "versus", split on that: items before "vs" go to rows, items after go to columns  # noqa: E501
-- If items are comma-separated, split them into individual entries
-- If the text has numbered/bulleted lists, extract the item names from those
-- If only one list is clearly present, put it in "rows" and infer reasonable column headers from the context  # noqa: E501
-- Maximum 10 items per list - pick the most distinct ones if there are more
-- Keep labels concise (1-5 words typically)
-
-Example 1: "Python, JavaScript vs Speed, Ease of Learning"
-Example 1 output: {{"rows": ["Python", "JavaScript"], "columns": ["Speed", "Ease of Learning"]}}
-
-Example 2: "1. GitHub Copilot: $10/month... 2. Tabnine: Free tier available..."
-Example 2 output: {{"rows": ["GitHub Copilot", "Tabnine"], "columns": ["Price", "Features", "Python Support"]}}"""  # noqa: E501
-
-    try:
-        kwargs = {
-            "model": request.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": combined_content},
-            ],
-            "temperature": 0.3,
-        }
-
-        api_key = get_api_key_for_provider(provider, request.api_key)
-        if api_key:
-            kwargs["api_key"] = api_key
-
-        if request.base_url:
-            kwargs["base_url"] = request.base_url
-
-            kwargs = prepare_copilot_openai_request(kwargs, request.model, api_key)
-
-        response = await litellm.acompletion(**kwargs)
-        title = response.choices[0].message.content.strip()
-
-        # Clean up any quotes or extra formatting
-        title = title.strip("\"'")
-
-        logger.info(f"Generated title: {title}")
-
-        # Parse the JSON response to extract rows and columns
-        try:
-            parsed = json.loads(title)
-            # Return rows and columns directly (frontend expects these fields)
-            return {
-                "rows": parsed.get("rows", []),
-                "columns": parsed.get("columns", []),
-            }
-        except json.JSONDecodeError:
-            # If response isn't valid JSON, extract rows/cols using regex
-            import re
-
-            rows_match = re.search(r'"rows"\s*:\s*\[([^\]]*)\]', title)
-            cols_match = re.search(r'"columns"\s*:\s*\[([^\]]*)\]', title)
-
-            rows = []
-            cols = []
-
-            if rows_match:
-                rows = [
-                    m.strip().strip('"')
-                    for m in rows_match.group(1).split(",")
-                    if m.strip()
-                ]
-
-            if cols_match:
-                cols = [
-                    m.strip().strip('"')
-                    for m in cols_match.group(1).split(",")
-                    if m.strip()
-                ]
-
-            return {"rows": rows, "columns": cols}
-
-    except Exception as e:
-        logger.error(f"Generate title failed: {e}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/api/generate-summary")
