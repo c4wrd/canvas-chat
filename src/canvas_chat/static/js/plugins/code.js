@@ -15,6 +15,7 @@ import { CancellableEvent } from '../plugin-events.js';
 import { EdgeType, createNode, createEdge } from '../graph-types.js';
 import { readSSEStream } from '../sse.js';
 import { wrapNode } from '../node-protocols.js';
+import { apiUrl } from '../utils.js';
 
 // =============================================================================
 // Code Node Protocol
@@ -383,6 +384,97 @@ export class CodeFeature extends FeaturePlugin {
      */
     async onLoad() {
         console.log('[CodeFeature] Loaded - self-healing enabled');
+
+        // Register Generate Code modal
+        const modalTemplate = `
+            <div id="generate-code-modal" class="modal" style="display: none">
+                <div class="modal-content modal-narrow">
+                    <div class="modal-header">
+                        <h2>Generate Code</h2>
+                        <button class="modal-close" id="generate-code-close">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="api-key-group">
+                            <label for="generate-code-input">What should the code do?</label>
+                            <textarea
+                                id="generate-code-input"
+                                class="modal-text-input"
+                                rows="4"
+                                placeholder="Describe what you want the code to do..."
+                            ></textarea>
+                        </div>
+                        <div class="modal-actions">
+                            <button id="generate-code-cancel" class="secondary-btn">Cancel</button>
+                            <button id="generate-code-btn" class="primary-btn">Generate</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        this.modalManager.registerModal('code', 'generate', modalTemplate);
+
+        // Setup Generate Code modal event listeners
+        const modal = this.modalManager.getPluginModal('code', 'generate');
+        const closeBtn = modal.querySelector('#generate-code-close');
+        const cancelBtn = modal.querySelector('#generate-code-cancel');
+        const generateBtn = modal.querySelector('#generate-code-btn');
+        const input = modal.querySelector('#generate-code-input');
+
+        let currentNodeId = null;
+
+        const handleGenerate = async () => {
+            const prompt = input.value.trim();
+            if (!prompt || !currentNodeId) return;
+
+            // Hide modal
+            modal.style.display = 'none';
+
+            // Use currently selected model
+            const model = this.modelPicker.value;
+            await this.handleNodeGenerateSubmit(currentNodeId, prompt, model);
+            currentNodeId = null;
+        };
+
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                modal.style.display = 'none';
+                currentNodeId = null;
+            });
+        }
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => {
+                modal.style.display = 'none';
+                currentNodeId = null;
+            });
+        }
+        if (generateBtn) {
+            generateBtn.addEventListener('click', handleGenerate);
+        }
+        if (input) {
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleGenerate();
+                } else if (e.key === 'Escape') {
+                    modal.style.display = 'none';
+                    currentNodeId = null;
+                }
+            };
+        }
+
+        // Store for handleNodeGenerate to use
+        this._generateModal = modal;
+        this._generateInput = input;
+        this._generateNodeId = null;
+
+        // Override handleNodeGenerate to use registered modal
+        const originalHandleNodeGenerate = this.handleNodeGenerate.bind(this);
+        this.handleNodeGenerate = async (nodeId) => {
+            currentNodeId = nodeId;
+            input.value = '';
+            this.modalManager.showPluginModal('code', 'generate');
+            input.focus();
+        };
     }
 
     /**
@@ -788,5 +880,395 @@ Output ONLY the corrected Python code, no explanations.`;
             });
             this.saveSession();
         }
+    }
+
+    /**
+     * Get canvas event handlers for code node functionality.
+     * @returns {Object} Event name -> handler function mapping
+     */
+    getCanvasEventHandlers() {
+        return {
+            nodeRunCode: this.handleNodeRunCode.bind(this),
+            nodeCodeChange: this.handleNodeCodeChange.bind(this),
+            nodeGenerate: this.handleNodeGenerate.bind(this),
+            nodeGenerateSubmit: this.handleNodeGenerateSubmit.bind(this),
+            nodeOutputToggle: this.handleNodeOutputToggle.bind(this),
+            nodeOutputClear: this.handleNodeOutputClear.bind(this),
+            nodeOutputResize: this.handleNodeOutputResize.bind(this),
+        };
+    }
+
+    /**
+     * Handle Run button click on Code node - executes Python with Pyodide
+     * @param {string} nodeId - The Code node ID
+     */
+    async handleNodeRunCode(nodeId) {
+        const codeNode = this.graph.getNode(nodeId);
+        if (!codeNode) return;
+        const wrapped = wrapNode(codeNode);
+        if (!wrapped.supportsCodeExecution || !wrapped.supportsCodeExecution()) return;
+
+        // Get code from node via protocol
+        const code = wrapped.getCode() || '';
+
+        console.log('🏃 Running code, length:', code.length, 'chars');
+
+        const csvNodeIds = codeNode.csvNodeIds || [];
+
+        // Build csvDataMap from linked CSV nodes
+        const csvDataMap = {};
+        csvNodeIds.forEach((csvId, index) => {
+            const csvNode = this.graph.getNode(csvId);
+            if (csvNode && csvNode.csvData) {
+                const varName = csvNodeIds.length === 1 ? 'df' : `df${index + 1}`;
+                csvDataMap[varName] = csvNode.csvData;
+            }
+        });
+
+        // Set execution state to 'running' and re-render node
+        // (CodeNode.renderContent() handles showing "Running..." indicator)
+        this.graph.updateNode(nodeId, {
+            executionState: 'running',
+            lastError: null,
+            installProgress: [], // Track installation messages
+            outputExpanded: false, // Start collapsed
+        });
+        this.canvas.renderNode(this.graph.getNode(nodeId));
+
+        // Collect installation progress messages
+        const installMessages = [];
+        let drawerOpenedForInstall = false;
+
+        const onInstallProgress = (msg) => {
+            installMessages.push(msg);
+
+            // On first message, expand drawer with animation
+            if (!drawerOpenedForInstall) {
+                this.graph.updateNode(nodeId, {
+                    installProgress: [...installMessages],
+                    outputExpanded: true,
+                });
+                this.canvas.renderNode(this.graph.getNode(nodeId));
+                drawerOpenedForInstall = true;
+            } else {
+                // Just update progress messages
+                this.graph.updateNode(nodeId, {
+                    installProgress: [...installMessages],
+                });
+            }
+        };
+
+        // Execute code with Pyodide
+        try {
+            const result = await pyodideRunner.runPython(code, csvDataMap, onInstallProgress);
+
+            // Update node with execution results
+            this.graph.updateNode(nodeId, {
+                executionState: 'success',
+                lastError: null,
+                installProgress: [],
+            });
+            this.canvas.renderNode(this.graph.getNode(nodeId));
+
+            // Update output if code printed something
+            if (result && result.stdout) {
+                this.graph.updateNode(nodeId, {
+                    output: result.stdout,
+                });
+            }
+
+            // Show error if code raised an exception
+            if (result && result.stderr) {
+                this.graph.updateNode(nodeId, {
+                    executionState: 'error',
+                    lastError: result.stderr,
+                });
+            }
+
+            this.saveSession();
+        } catch (error) {
+            console.error('Code execution error:', error);
+
+            // Show error state in node
+            this.graph.updateNode(nodeId, {
+                executionState: 'error',
+                lastError: error.message || 'Unknown error',
+                installProgress: [],
+            });
+            this.canvas.renderNode(this.graph.getNode(nodeId));
+            this.saveSession();
+        }
+    }
+
+    /**
+     * Handle code change in editor
+     * @param {string} nodeId - The Code node ID
+     * @param {string} code - The new code content
+     */
+    handleNodeCodeChange(nodeId, code) {
+        const node = this.graph.getNode(nodeId);
+        if (!node) return;
+
+        // Update both content and code fields
+        this.graph.updateNode(nodeId, {
+            content: code,
+            code: code,
+            executionState: null, // Clear execution state when code changes
+            lastError: null,
+        });
+
+        // Update node title based on code
+        const wrapped = wrapNode(node);
+        if (typeof wrapped.updateTitle === 'function') {
+            wrapped.updateTitle(nodeId, this.canvas);
+        }
+
+        this.saveSession();
+    }
+
+    /**
+     * Handle Generate button click on Code node
+     * @param {string} nodeId - The Code node ID
+     */
+    async handleNodeGenerate(nodeId) {
+        const node = this.graph.getNode(nodeId);
+        if (!node) return;
+
+        // Show modal to get generation prompt
+        const modal = this._generateModal;
+        const input = this._generateInput;
+
+        if (!modal || !input) {
+            console.error('Generate code modal not found');
+            return;
+        }
+
+        // Store nodeId for when user clicks Generate
+        this._generateNodeId = nodeId;
+
+        // Clear input and show modal
+        input.value = '';
+        this.modalManager.showPluginModal('code', 'generate');
+        input.focus();
+    }
+
+    /**
+     * Gather context for AI code generation
+     * @param {string} nodeId - The Code node ID
+     * @returns {Promise<Object>} Context object with dataframeInfo, ancestorContext, existingCode
+     */
+    async gatherCodeGenerationContext(nodeId) {
+        const node = this.graph.getNode(nodeId);
+        if (!node) return { dataframeInfo: [], ancestorContext: [], existingCode: '' };
+
+        // Get existing code (if any, and not the placeholder)
+        const existingCode = node.content && !node.content.includes('# Generating') ? node.content : '';
+
+        // Get DataFrame metadata (cached on node, or introspect now)
+        let dataframeInfo = node.dataframeMetadata || [];
+        if (dataframeInfo.length === 0) {
+            // Introspect DataFrames from linked CSV nodes
+            const csvNodeIds = node.csvNodeIds || [];
+            if (csvNodeIds.length > 0) {
+                const csvDataMap = {};
+                csvNodeIds.forEach((csvId, index) => {
+                    const csvNode = this.graph.getNode(csvId);
+                    if (csvNode && csvNode.csvData) {
+                        const varName = csvNodeIds.length === 1 ? 'df' : `df${index + 1}`;
+                        csvDataMap[varName] = csvNode.csvData;
+                    }
+                });
+
+                // Run introspection
+                dataframeInfo = await pyodideRunner.introspectDataFrames(csvDataMap);
+
+                console.log('📊 DataFrame introspection results:', dataframeInfo);
+
+                // Cache on node for future generations
+                this.graph.updateNode(nodeId, { dataframeMetadata: dataframeInfo });
+            }
+        }
+
+        // Get ancestor context (conversation history)
+        const ancestors = this.graph.getAncestors(nodeId);
+        const ancestorContext = ancestors
+            .filter((n) => ['human', 'ai', 'note', 'pdf', 'fetch_result', 'youtube', 'git_repo'].includes(n.type))
+            .map((n) => ({
+                role: ['human', 'pdf', 'fetch_result', 'youtube', 'git_repo'].includes(n.type) ? 'user' : 'assistant',
+                content: n.content,
+            }));
+
+        return { dataframeInfo, ancestorContext, existingCode };
+    }
+
+    /**
+     * Handle Generate code submission - generates code with AI
+     * @param {string} nodeId - The Code node ID
+     * @param {string} description - User's prompt for code generation
+     * @param {string} model - Model to use
+     */
+    async handleNodeGenerateSubmit(nodeId, description, model) {
+        const node = this.graph.getNode(nodeId);
+        if (!node) return;
+
+        // Build context for AI generation
+        const context = await this.gatherCodeGenerationContext(nodeId);
+
+        // Set node to "generating" state
+        const placeholderCode = `# Generating code...\n# ${description}`;
+        this.graph.updateNode(nodeId, {
+            content: placeholderCode,
+            code: placeholderCode,
+        });
+        this.canvas.renderNode(this.graph.getNode(nodeId));
+
+        // Build request for /api/generate-code endpoint (different format than chat)
+        const request = {
+            prompt: description,
+            existing_code: context.existingCode || null,
+            dataframe_info: context.dataframeInfo || [],
+            context: context.ancestorContext || [],
+            model: model,
+        };
+
+        // Add admin credentials if in admin mode
+        if (this.adminMode) {
+            // Backend handles credentials in admin mode
+        } else {
+            // Include user-provided credentials
+            const apiKey = this.chat.getApiKeyForModel(model);
+            const baseUrl = this.chat.getBaseUrlForModel(model);
+            request.api_key = apiKey;
+            request.base_url = baseUrl;
+        }
+
+        // Create abort controller
+        const abortController = new AbortController();
+
+        // Register with StreamingManager
+        this.streamingManager.register(nodeId, {
+            abortController,
+            featureId: this.id,
+            onStop: (nodeId) => {
+                console.log('[Code] Generation stopped');
+            },
+            onContinue: async (nodeId, state) => {
+                console.log('[Code] Continuing generation');
+                await this.handleNodeGenerateSubmit(nodeId, state.prompt, state.model);
+            },
+        });
+
+        try {
+            const response = await fetch(apiUrl('/api/generate-code'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(request),
+                signal: abortController.signal,
+            });
+
+            if (!response.ok) {
+                throw new Error(`API error: ${response.statusText}`);
+            }
+
+            let generatedCode = '';
+            await readSSEStream(response, {
+                onEvent: (eventType, data) => {
+                    if (eventType === 'message' && data) {
+                        generatedCode += data;
+                        const codeNode = this.graph.getNode(nodeId);
+                        if (codeNode) {
+                            const codeWrapped = wrapNode(codeNode);
+                            codeWrapped.updateContent(nodeId, generatedCode, true, this.canvas);
+                        }
+                    }
+                },
+                onDone: async () => {
+                    // Clean up streaming state (auto-hides stop button)
+                    this.streamingManager.unregister(nodeId);
+
+                    // Final update ensures editor has final content
+                    const codeNode = this.graph.getNode(nodeId);
+                    if (codeNode) {
+                        const codeWrapped = wrapNode(codeNode);
+                        codeWrapped.updateContent(nodeId, generatedCode, false, this.canvas);
+                    }
+                    this.graph.updateNode(nodeId, { content: generatedCode, code: generatedCode });
+                    this.saveSession();
+
+                    // Self-healing: Auto-run and fix errors (max 3 attempts)
+                    await this.selfHealCode(nodeId, description, model, context, 1);
+                },
+                onError: (err) => {
+                    throw err;
+                },
+            });
+        } catch (error) {
+            // Clean up on error (auto-hides stop button)
+            this.streamingManager.unregister(nodeId);
+
+            // Check if it was aborted (user clicked stop)
+            if (error.name === 'AbortError') {
+                // Leave partial code in place
+                return;
+            }
+
+            // Show error
+            console.error('Code generation failed:', error);
+            const errorCode = `# Code generation failed: ${error.message}\n`;
+            const codeNode = this.graph.getNode(nodeId);
+            if (codeNode) {
+                const codeWrapped = wrapNode(codeNode);
+                codeWrapped.updateContent(nodeId, errorCode, false, this.canvas);
+            }
+            this.graph.updateNode(nodeId, { content: errorCode });
+            this.saveSession();
+        }
+    }
+
+    /**
+     * Handle output panel toggle
+     * @param {string} nodeId - The Code node ID
+     */
+    handleNodeOutputToggle(nodeId) {
+        const node = this.graph.getNode(nodeId);
+        if (!node) return;
+
+        // Toggle outputExpanded state
+        this.graph.updateNode(nodeId, {
+            outputExpanded: !node.outputExpanded,
+        });
+        this.canvas.renderNode(this.graph.getNode(nodeId));
+        this.saveSession();
+    }
+
+    /**
+     * Handle output clear
+     * @param {string} nodeId - The Code node ID
+     */
+    handleNodeOutputClear(nodeId) {
+        const node = this.graph.getNode(nodeId);
+        if (!node) return;
+
+        // Clear output
+        this.graph.updateNode(nodeId, {
+            output: '',
+        });
+        this.canvas.renderNode(this.graph.getNode(nodeId));
+        this.saveSession();
+    }
+
+    /**
+     * Handle output resize (height change)
+     * @param {string} nodeId - The Code node ID
+     * @param {number} height - New height in pixels
+     */
+    handleNodeOutputResize(nodeId, height) {
+        const node = this.graph.getNode(nodeId);
+        if (!node) return;
+        const wrapped = wrapNode(node);
+        if (!wrapped.hasOutput || !wrapped.hasOutput()) return;
+
+        this.graph.updateNode(nodeId, { outputPanelHeight: height });
+        this.saveSession();
     }
 }
