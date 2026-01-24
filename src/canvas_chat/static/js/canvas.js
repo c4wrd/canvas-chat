@@ -49,6 +49,10 @@ class Canvas {
         // Track nodes where user has manually scrolled (to pause auto-scroll)
         this.userScrolledNodes = new Set();
 
+        // Streaming markdown rendering state
+        this.streamingRenderTimers = new Map(); // nodeId -> timer for throttled rendering
+        this.streamingRenderInterval = 100; // ms between renders during streaming
+
         // Selection state
         this.selectedNodes = new Set();
         this.hoveredNode = null;
@@ -3128,17 +3132,53 @@ class Canvas {
 
         const contentEl = wrapper.querySelector('.node-content');
         if (contentEl) {
-            // During streaming, use plain text for performance
-            // After streaming completes, render markdown
             if (isStreaming) {
-                contentEl.textContent = content;
                 contentEl.classList.add('streaming');
 
-                // Auto-scroll to bottom during streaming (unless user manually scrolled up)
-                if (!this.userScrolledNodes.has(nodeId)) {
-                    contentEl.scrollTop = contentEl.scrollHeight;
+                // Throttled markdown rendering during streaming
+                // Store the latest content for rendering
+                contentEl._pendingContent = content;
+
+                // Only schedule a new timer if one isn't already pending (proper throttle pattern)
+                // Do NOT clear existing timers - let them complete to ensure regular renders
+                if (!this.streamingRenderTimers.has(nodeId)) {
+                    const timer = setTimeout(() => {
+                        this.streamingRenderTimers.delete(nodeId);
+                        // Render the latest content that was stored
+                        const latestContent = contentEl._pendingContent;
+                        if (latestContent !== undefined) {
+                            const prepared = this.prepareStreamingMarkdown(latestContent);
+                            contentEl.innerHTML = this.renderMarkdown(prepared);
+                            // Update last render time for leading edge control
+                            contentEl._lastRenderTime = Date.now();
+                            // Auto-scroll to bottom during streaming (unless user manually scrolled up)
+                            if (!this.userScrolledNodes.has(nodeId)) {
+                                contentEl.scrollTop = contentEl.scrollHeight;
+                            }
+                        }
+                    }, this.streamingRenderInterval);
+                    this.streamingRenderTimers.set(nodeId, timer);
+                }
+
+                // Leading edge: immediate render if enough time has passed since last render
+                if (!contentEl._lastRenderTime || Date.now() - contentEl._lastRenderTime >= this.streamingRenderInterval) {
+                    contentEl._lastRenderTime = Date.now();
+                    const prepared = this.prepareStreamingMarkdown(content);
+                    contentEl.innerHTML = this.renderMarkdown(prepared);
+                    // Auto-scroll to bottom during streaming (unless user manually scrolled up)
+                    if (!this.userScrolledNodes.has(nodeId)) {
+                        contentEl.scrollTop = contentEl.scrollHeight;
+                    }
                 }
             } else {
+                // Streaming complete - clear any pending timer and do final render
+                if (this.streamingRenderTimers.has(nodeId)) {
+                    clearTimeout(this.streamingRenderTimers.get(nodeId));
+                    this.streamingRenderTimers.delete(nodeId);
+                }
+                delete contentEl._pendingContent;
+                delete contentEl._lastRenderTime;
+
                 contentEl.innerHTML = this.renderMarkdown(content);
                 contentEl.classList.remove('streaming');
 
@@ -4385,6 +4425,64 @@ class Canvas {
         } catch (e) {
             console.error('[Canvas] Error configuring marked:', e);
         }
+    }
+
+    /**
+     * Prepare markdown text for streaming rendering by closing incomplete blocks.
+     * This prevents visual artifacts from unclosed code fences, math blocks, etc.
+     * @param {string} text - The streaming markdown text
+     * @returns {string} - Text with incomplete blocks temporarily closed
+     */
+    prepareStreamingMarkdown(text) {
+        if (!text) return '';
+
+        let prepared = text;
+
+        // Count fenced code blocks (```) - if odd number, close it
+        const fenceMatches = prepared.match(/```/g);
+        const fenceCount = fenceMatches ? fenceMatches.length : 0;
+        if (fenceCount % 2 === 1) {
+            // Odd number of fences means unclosed code block
+            prepared += '\n```';
+        }
+
+        // Count inline code backticks (`) outside of fenced blocks
+        // We need to be careful here - only count backticks not part of fences
+        // Simple approach: if we just closed a fence, we're good
+        // Otherwise check for unclosed inline code
+        if (fenceCount % 2 === 0) {
+            // No unclosed fence, check for inline code
+            // Count single backticks that aren't part of ``` sequences
+            const withoutFences = prepared.replace(/```[\s\S]*?```/g, '');
+            const backtickMatches = withoutFences.match(/`/g);
+            const backtickCount = backtickMatches ? backtickMatches.length : 0;
+            if (backtickCount % 2 === 1) {
+                prepared += '`';
+            }
+        }
+
+        // Handle unclosed math blocks
+        // Check for \[ without matching \]
+        const displayMathOpens = (prepared.match(/\\\[/g) || []).length;
+        const displayMathCloses = (prepared.match(/\\\]/g) || []).length;
+        if (displayMathOpens > displayMathCloses) {
+            prepared += '\\]';
+        }
+
+        // Check for \( without matching \)
+        const inlineMathOpens = (prepared.match(/\\\(/g) || []).length;
+        const inlineMathCloses = (prepared.match(/\\\)/g) || []).length;
+        if (inlineMathOpens > inlineMathCloses) {
+            prepared += '\\)';
+        }
+
+        // Check for $$ (display math) - count pairs
+        const doubleDollarCount = (prepared.match(/\$\$/g) || []).length;
+        if (doubleDollarCount % 2 === 1) {
+            prepared += '$$';
+        }
+
+        return prepared;
     }
 
     /**

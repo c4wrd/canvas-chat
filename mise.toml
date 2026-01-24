@@ -1,0 +1,62 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+
+min_version = "2024.1.0"
+
+[tools]
+python = "3.11"
+node = "20"
+uv = "latest"
+
+[env]
+UV_PYTHON_PREFERENCE = "only-managed"
+
+[tasks.dev]
+description = "Run development server with hot reload for Python and JS/CSS"
+run = """
+CANVAS_CHAT_DEV_MODE=true uv run uvicorn canvas_chat.app:app \
+    --reload \
+    --reload-include '*.js' \
+    --reload-include '*.css' \
+    --reload-include '*.html' \
+    --port 7865
+"""
+
+[tasks.test]
+description = "Run Python tests"
+run = "uv run pytest tests/ -v"
+
+[tasks.test-js]
+description = "Run JavaScript tests"
+run = "node tests/run_tests.js"
+
+[tasks.typecheck]
+description = "Run TypeScript type checking"
+run = "npx tsc --noEmit"
+
+[tasks.modal-serve]
+description = "Start Modal development server"
+run = "uv run modal serve modal_app.py"
+
+[tasks.modal-deploy]
+description = "Deploy to Modal.com"
+run = "uv run modal deploy modal_app.py"
+
+[tasks.docs-serve]
+description = "Serve documentation locally"
+run = "uv run --group docs mkdocs serve"
+
+[tasks.docs-build]
+description = "Build documentation site"
+run = "uv run --group docs mkdocs build"
+
+[tasks.docs-deploy]
+description = "Deploy documentation to GitHub Pages"
+run = "uv run --group docs mkdocs gh-deploy"
+
+[tasks.install]
+description = "Install all dependencies"
+run = "uv sync && npm install"
+
+[tasks.lock]
+description = "Update lock files"
+run = "uv lock"

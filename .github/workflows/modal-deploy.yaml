@@ -1,4 +1,7 @@
-name: Deploy to Modal
+name: Deploy to Modal (DISABLED)
+
+# DISABLED: This is a private fork
+# To re-enable, remove the `if: false` from the jobs below
 
 permissions:
   contents: read
@@ -13,7 +16,7 @@ on:
       - 'src/**'
       - 'modal_app.py'
       - 'pyproject.toml'
-      - 'pixi.lock'
+      - 'uv.lock'
       - '.github/workflows/modal-deploy.yaml'
   pull_request:
     types: [opened, synchronize, reopened]
@@ -21,11 +24,12 @@ on:
       - 'src/**'
       - 'modal_app.py'
       - 'pyproject.toml'
-      - 'pixi.lock'
+      - 'uv.lock'
       - '.github/workflows/modal-deploy.yaml'
 
 jobs:
   deploy:
+    if: false  # DISABLED for private fork
     name: Deploy Canvas Chat
     runs-on: ubuntu-latest
     env:
@@ -117,10 +121,10 @@ jobs:
 
 
   post-pr-comment:
+    if: false  # DISABLED for private fork
     name: Post PR comment
     runs-on: ubuntu-latest
     needs: deploy
-    if: github.event_name == 'pull_request'
     steps:
       - name: Post or update PR comment
         uses: actions/github-script@v8

@@ -1,5 +1,8 @@
+# DISABLED: This is a private fork
+# To re-enable, remove the `if: false` from the jobs below
+
 # Run code style checks on each pull request.
-name: Code style checks
+name: Code style checks (DISABLED)
 
 on:
   pull_request:
@@ -9,6 +12,7 @@ on:
 
 jobs:
   linting:
+    if: false  # DISABLED for private fork
     env:
       # Configure a constant location for the uv cache
       UV_CACHE_DIR: /tmp/.uv-cache
@@ -18,13 +22,6 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
-
-      - name: Setup Pixi Environment
-        uses: prefix-dev/setup-pixi@v0.9.3
-        with:
-          pixi-version: latest
-          cache: true
-          cache-write: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
 
       - name: Cache pre-commit hooks
         uses: actions/cache@v5

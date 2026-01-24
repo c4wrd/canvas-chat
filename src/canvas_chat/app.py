@@ -69,6 +69,12 @@ logger = logging.getLogger(__name__)
 # Configure litellm
 litellm.drop_params = True  # Drop unsupported params gracefully
 
+# Dev mode detection and live reload support
+# Uvicorn sets this env var when running with --reload
+DEV_MODE = os.environ.get("WATCHFILES_FORCE_POLLING") is not None or \
+           os.environ.get("CANVAS_CHAT_DEV_MODE") == "true"
+SERVER_START_TIME = str(time.time())
+
 app = FastAPI(title="Canvas Chat", version=__version__)
 
 # Register plugin-specific endpoints (must be after app creation)
@@ -186,6 +192,16 @@ async def health_check(request: Request):
         result["ollama"] = False
 
     return result
+
+
+@app.get("/dev/reload")
+async def dev_reload_check():
+    """Dev mode endpoint for live reload.
+
+    Returns the server start time. Client polls this and reloads when it changes.
+    Only active in dev mode.
+    """
+    return {"startTime": SERVER_START_TIME, "devMode": DEV_MODE}
 
 
 # --- Pydantic Models ---
@@ -1021,6 +1037,39 @@ async def root():
                 "</body>",
                 f"\n        <!-- Custom plugins -->\n{plugin_html}\n    </body>",
             )
+
+    # Inject live reload script in dev mode
+    if DEV_MODE:
+        live_reload_script = """
+        <!-- Dev mode live reload -->
+        <script>
+        (function() {
+            let lastStartTime = null;
+            const POLL_INTERVAL = 1000;
+
+            async function checkReload() {
+                try {
+                    const res = await fetch('/dev/reload');
+                    const data = await res.json();
+                    if (lastStartTime === null) {
+                        lastStartTime = data.startTime;
+                        console.log('[LiveReload] Connected, server start time:', lastStartTime);
+                    } else if (data.startTime !== lastStartTime) {
+                        console.log('[LiveReload] Server restarted, reloading...');
+                        location.reload();
+                    }
+                } catch (e) {
+                    // Server probably restarting, will retry
+                }
+            }
+
+            setInterval(checkReload, POLL_INTERVAL);
+            checkReload();
+            console.log('[LiveReload] Dev mode active - watching for changes');
+        })();
+        </script>
+"""
+        html = html.replace("</body>", f"{live_reload_script}    </body>")
 
     return HTMLResponse(content=html)
 
