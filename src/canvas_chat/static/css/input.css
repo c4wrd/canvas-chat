@@ -117,3 +117,30 @@
 .attach-btn:active {
     transform: scale(0.95);
 }
+
+/* Reasoning Picker */
+.reasoning-picker {
+    padding: 8px 10px;
+    border: 2px solid var(--bg-secondary);
+    border-radius: var(--radius-md);
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+    flex-shrink: 0;
+}
+
+.reasoning-picker:hover {
+    border-color: var(--accent);
+}
+
+.reasoning-picker:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.reasoning-picker.active {
+    border-color: var(--accent);
+    color: var(--accent);
+}

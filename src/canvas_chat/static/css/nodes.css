@@ -716,6 +716,83 @@
     }
 }
 
+/* Thinking Section (for extended reasoning/thinking) */
+.thinking-section {
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--bg-secondary);
+}
+
+.thinking-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-secondary);
+    font-style: italic;
+    font-size: 0.9em;
+}
+
+.thinking-icon {
+    font-size: 1.2em;
+}
+
+.thinking-icon.pulse {
+    animation: thinking-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes thinking-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.thinking-details {
+    background: var(--bg-secondary);
+    border-radius: var(--radius-sm);
+    padding: 8px;
+}
+
+.thinking-summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 0.9em;
+    user-select: none;
+    list-style: none;
+}
+
+.thinking-summary::-webkit-details-marker {
+    display: none;
+}
+
+.thinking-summary::before {
+    content: '▶ ';
+    font-size: 0.8em;
+    transition: transform 0.2s;
+    display: inline-block;
+}
+
+.thinking-details[open] .thinking-summary::before {
+    transform: rotate(90deg);
+}
+
+.thinking-summary:hover {
+    color: var(--text-primary);
+}
+
+.thinking-content {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 0.9em;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+/* When thinking is expanded, allow more height */
+.thinking-details[open] .thinking-content {
+    max-height: 400px;
+}
+
 /* Header buttons - visible by default, hide specific buttons explicitly */
 .header-btn {
     display: inline-flex;

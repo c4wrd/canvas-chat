@@ -116,6 +116,7 @@ class App {
         this.chatInput = document.getElementById('chat-input');
         this.sendBtn = document.getElementById('send-btn');
         this.modelPicker = document.getElementById('model-picker');
+        this.reasoningPicker = document.getElementById('reasoning-picker');
         this.sessionName = document.getElementById('session-name');
         this.budgetFill = document.getElementById('budget-fill');
         this.budgetText = document.getElementById('budget-text');
@@ -184,6 +185,9 @@ class App {
         if (this.adminMode) {
             this.hideAdminRestrictedUI();
         }
+
+        // Initialize reasoning picker
+        this.initReasoningPicker();
 
         // Initialize plugin system (must happen before loadSession since features are accessed during session load)
         await this.initializePluginSystem();
@@ -267,6 +271,41 @@ class App {
         } catch (error) {
             console.warn('[App] Failed to fetch feature flags, defaulting copilot to enabled:', error);
             this.copilotEnabled = true;
+        }
+    }
+
+    /**
+     * Initialize the reasoning effort picker
+     * Loads saved value from storage and sets up change listener
+     */
+    initReasoningPicker() {
+        if (!this.reasoningPicker) return;
+
+        // Load saved value
+        const savedValue = storage.getReasoningEffort();
+        this.reasoningPicker.value = savedValue;
+
+        // Update visual state
+        this.updateReasoningPickerState();
+
+        // Listen for changes
+        this.reasoningPicker.addEventListener('change', () => {
+            storage.setReasoningEffort(this.reasoningPicker.value);
+            this.updateReasoningPickerState();
+        });
+    }
+
+    /**
+     * Update the visual state of the reasoning picker
+     * Adds 'active' class when reasoning is enabled
+     */
+    updateReasoningPickerState() {
+        if (!this.reasoningPicker) return;
+
+        if (this.reasoningPicker.value !== 'none') {
+            this.reasoningPicker.classList.add('active');
+        } else {
+            this.reasoningPicker.classList.remove('active');
         }
     }
 
@@ -1242,25 +1281,38 @@ class App {
      */
     buildLLMRequest(additionalParams = {}) {
         const model = this.modelPicker.value;
+        const reasoningEffort = storage.getReasoningEffort();
 
         // In admin mode, backend handles credentials
         if (this.adminMode) {
-            return {
+            const request = {
                 model: model,
                 ...additionalParams,
             };
+            // Add reasoning_effort if enabled
+            if (reasoningEffort && reasoningEffort !== 'none') {
+                request.reasoning_effort = reasoningEffort;
+            }
+            return request;
         }
 
         // Normal mode: include user-provided credentials
         const apiKey = chat.getApiKeyForModel(model);
         const baseUrl = chat.getBaseUrlForModel(model);
 
-        return {
+        const request = {
             model: model,
             api_key: apiKey,
             base_url: baseUrl,
             ...additionalParams,
         };
+
+        // Add reasoning_effort if enabled
+        if (reasoningEffort && reasoningEffort !== 'none') {
+            request.reasoning_effort = reasoningEffort;
+        }
+
+        return request;
     }
 
     /**
@@ -1366,6 +1418,12 @@ class App {
             },
         });
 
+        // Show thinking indicator if reasoning is enabled
+        const reasoningEffort = storage.getReasoningEffort();
+        if (reasoningEffort && reasoningEffort !== 'none') {
+            this.canvas.updateNodeThinking(aiNode.id, '', true);
+        }
+
         // Stream response using streamWithAbort
         this.streamWithAbort(
             aiNode.id,
@@ -1378,16 +1436,18 @@ class App {
                 this.graph.updateNode(aiNode.id, { content: fullContent });
             },
             // onDone
-            (fullContent) => {
+            (fullContent, thinkingContent) => {
                 this.streamingManager.unregister(aiNode.id); // Auto-hides stop button
+                this.canvas.finalizeThinking(aiNode.id, thinkingContent);
                 this.canvas.updateNodeContent(aiNode.id, fullContent, false);
-                this.graph.updateNode(aiNode.id, { content: fullContent });
+                this.graph.updateNode(aiNode.id, { content: fullContent, thinking: thinkingContent || null });
                 this.saveSession();
                 this.generateNodeSummary(aiNode.id);
             },
             // onError
             (err) => {
                 this.streamingManager.unregister(aiNode.id); // Auto-hides stop button
+                this.canvas.finalizeThinking(aiNode.id, ''); // Clear thinking on error
 
                 // Format and display user-friendly error
                 const errorInfo = formatUserError(err);
@@ -1397,6 +1457,12 @@ class App {
                     model,
                     humanNodeId: humanNode.id,
                 });
+            },
+            // options with onThinking callback
+            {
+                onThinking: (chunk, fullThinking) => {
+                    this.canvas.updateNodeThinking(aiNode.id, fullThinking, true);
+                }
             }
         );
     }
@@ -2728,6 +2794,12 @@ print("Hello from Pyodide!")
                     },
                 });
 
+                // Show thinking indicator if reasoning is enabled
+                const reasoningEffort = storage.getReasoningEffort();
+                if (reasoningEffort && reasoningEffort !== 'none') {
+                    this.canvas.updateNodeThinking(aiNode.id, '', true);
+                }
+
                 // Stream response using streamWithAbort
                 this.streamWithAbort(
                     aiNode.id,
@@ -2740,16 +2812,18 @@ print("Hello from Pyodide!")
                         this.graph.updateNode(aiNode.id, { content: fullContent });
                     },
                     // onDone
-                    (fullContent) => {
+                    (fullContent, thinkingContent) => {
                         this.streamingManager.unregister(aiNode.id); // Auto-hides stop button
+                        this.canvas.finalizeThinking(aiNode.id, thinkingContent);
                         this.canvas.updateNodeContent(aiNode.id, fullContent, false);
-                        this.graph.updateNode(aiNode.id, { content: fullContent });
+                        this.graph.updateNode(aiNode.id, { content: fullContent, thinking: thinkingContent || null });
                         this.saveSession();
                         this.generateNodeSummary(aiNode.id);
                     },
                     // onError
                     (err) => {
                         this.streamingManager.unregister(aiNode.id); // Auto-hides stop button
+                        this.canvas.finalizeThinking(aiNode.id, '');
 
                         // Format and display user-friendly error
                         const errorInfo = formatUserError(err);
@@ -2759,6 +2833,12 @@ print("Hello from Pyodide!")
                             model,
                             humanNodeId: humanNode.id,
                         });
+                    },
+                    // options with onThinking callback
+                    {
+                        onThinking: (chunk, fullThinking) => {
+                            this.canvas.updateNodeThinking(aiNode.id, fullThinking, true);
+                        }
                     }
                 );
             } else {
@@ -3205,6 +3285,12 @@ print("Hello from Pyodide!")
             },
         });
 
+        // Show thinking indicator if reasoning is enabled
+        const reasoningEffort = storage.getReasoningEffort();
+        if (reasoningEffort && reasoningEffort !== 'none') {
+            this.canvas.updateNodeThinking(nodeId, '', true);
+        }
+
         // Continue streaming
         this.streamWithAbort(
             nodeId,
@@ -3219,21 +3305,29 @@ print("Hello from Pyodide!")
                 this.graph.updateNode(nodeId, { content: combinedContent });
             },
             // onDone
-            (fullContent) => {
+            (fullContent, thinkingContent) => {
                 this.streamingManager.unregister(nodeId); // Auto-hides stop button
+                this.canvas.finalizeThinking(nodeId, thinkingContent);
                 const combinedContent = currentContent + fullContent;
                 this.canvas.updateNodeContent(nodeId, combinedContent, false);
-                this.graph.updateNode(nodeId, { content: combinedContent });
+                this.graph.updateNode(nodeId, { content: combinedContent, thinking: thinkingContent || null });
                 this.saveSession();
                 this.generateNodeSummary(nodeId);
             },
             // onError
             (err) => {
                 this.streamingManager.unregister(nodeId); // Auto-hides stop button
+                this.canvas.finalizeThinking(nodeId, '');
                 const errorContent = currentContent + `\n\n*Error continuing: ${err.message}*`;
                 this.canvas.updateNodeContent(nodeId, errorContent, false);
                 this.graph.updateNode(nodeId, { content: errorContent });
                 this.saveSession();
+            },
+            // options with onThinking callback
+            {
+                onThinking: (chunk, fullThinking) => {
+                    this.canvas.updateNodeThinking(nodeId, fullThinking, true);
+                }
             }
         );
     }
@@ -3346,10 +3440,14 @@ print("Hello from Pyodide!")
      * @param {Array} messages - Array of {role, content} messages
      * @param {string} model - Model ID
      * @param {Function} onChunk - Callback for each chunk (chunk, fullContent)
-     * @param {Function} onDone - Callback when complete (normalizedContent)
+     * @param {Function} onDone - Callback when complete (normalizedContent, thinkingContent)
      * @param {Function} onError - Callback on error (err)
+     * @param {Object} [options] - Optional additional parameters
+     * @param {Function} [options.onThinking] - Callback for thinking chunks (chunk, fullThinking)
      */
-    async streamWithAbort(nodeId, abortController, messages, model, onChunk, onDone, onError) {
+    async streamWithAbort(nodeId, abortController, messages, model, onChunk, onDone, onError, options = {}) {
+        const { onThinking = null } = options;
+
         try {
             const requestBody = this.buildLLMRequest({
                 messages,
@@ -3368,16 +3466,22 @@ print("Hello from Pyodide!")
             }
 
             let fullContent = '';
+            let thinkingContent = '';
 
             await readSSEStream(response, {
                 onEvent: (eventType, data) => {
-                    if (eventType === 'message' && data) {
+                    if (eventType === 'thinking' && data) {
+                        thinkingContent += data;
+                        if (onThinking) {
+                            onThinking(data, thinkingContent);
+                        }
+                    } else if (eventType === 'message' && data) {
                         fullContent += data;
                         onChunk(data, fullContent);
                     }
                 },
                 onDone: () => {
-                    onDone(fullContent);
+                    onDone(fullContent, thinkingContent);
                 },
                 onError: (err) => {
                     throw err;
@@ -3447,6 +3551,12 @@ print("Hello from Pyodide!")
                 },
             });
 
+            // Show thinking indicator if reasoning is enabled
+            const reasoningEffort = storage.getReasoningEffort();
+            if (reasoningEffort && reasoningEffort !== 'none') {
+                this.canvas.updateNodeThinking(nodeId, '', true);
+            }
+
             // Retry the chat request using streamWithAbort
             this.streamWithAbort(
                 nodeId,
@@ -3459,18 +3569,26 @@ print("Hello from Pyodide!")
                     this.graph.updateNode(nodeId, { content: fullContent });
                 },
                 // onDone
-                (fullContent) => {
+                (fullContent, thinkingContent) => {
                     this.streamingManager.unregister(nodeId); // Auto-hides stop button
+                    this.canvas.finalizeThinking(nodeId, thinkingContent);
                     this.canvas.updateNodeContent(nodeId, fullContent, false);
-                    this.graph.updateNode(nodeId, { content: fullContent });
+                    this.graph.updateNode(nodeId, { content: fullContent, thinking: thinkingContent || null });
                     this.saveSession();
                     this.generateNodeSummary(nodeId);
                 },
                 // onError
                 (err) => {
                     this.streamingManager.unregister(nodeId); // Auto-hides stop button
+                    this.canvas.finalizeThinking(nodeId, '');
                     const errorInfo = formatUserError(err);
                     this.showNodeError(nodeId, errorInfo, retryContext);
+                },
+                // options with onThinking callback
+                {
+                    onThinking: (chunk, fullThinking) => {
+                        this.canvas.updateNodeThinking(nodeId, fullThinking, true);
+                    }
                 }
             );
         }
@@ -3606,6 +3724,12 @@ print("Hello from Pyodide!")
             },
         });
 
+        // Show thinking indicator if reasoning is enabled
+        const reasoningEffort = storage.getReasoningEffort();
+        if (reasoningEffort && reasoningEffort !== 'none') {
+            this.canvas.updateNodeThinking(summaryNode.id, '', true);
+        }
+
         // Stream the summary
         this.streamWithAbort(
             summaryNode.id,
@@ -3618,20 +3742,28 @@ print("Hello from Pyodide!")
                 this.graph.updateNode(summaryNode.id, { content: fullContent });
             },
             // onDone
-            (fullContent) => {
+            (fullContent, thinkingContent) => {
                 this.streamingManager.unregister(summaryNode.id); // Auto-hides stop button
+                this.canvas.finalizeThinking(summaryNode.id, thinkingContent);
                 this.canvas.updateNodeContent(summaryNode.id, fullContent, false);
-                this.graph.updateNode(summaryNode.id, { content: fullContent });
+                this.graph.updateNode(summaryNode.id, { content: fullContent, thinking: thinkingContent || null });
                 this.saveSession();
                 this.generateNodeSummary(summaryNode.id);
             },
             // onError
             (err) => {
                 this.streamingManager.unregister(summaryNode.id); // Auto-hides stop button
+                this.canvas.finalizeThinking(summaryNode.id, '');
                 const errorContent = `*Error generating summary: ${err.message}*`;
                 this.canvas.updateNodeContent(summaryNode.id, errorContent, false);
                 this.graph.updateNode(summaryNode.id, { content: errorContent });
                 this.saveSession();
+            },
+            // options with onThinking callback
+            {
+                onThinking: (chunk, fullThinking) => {
+                    this.canvas.updateNodeThinking(summaryNode.id, fullThinking, true);
+                }
             }
         );
 

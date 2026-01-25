@@ -3207,6 +3207,87 @@ class Canvas {
     }
 
     /**
+     * Update node thinking/reasoning content (for extended thinking display)
+     * @param {string} nodeId - Node ID
+     * @param {string} thinkingContent - Current thinking content
+     * @param {boolean} isThinking - Whether thinking is still in progress
+     */
+    updateNodeThinking(nodeId, thinkingContent, isThinking = true) {
+        const wrapper = this.nodeElements.get(nodeId);
+        if (!wrapper) return;
+
+        const contentEl = wrapper.querySelector('.node-content');
+        if (!contentEl) return;
+
+        // Create or get thinking section
+        let thinkingEl = contentEl.querySelector('.thinking-section');
+        if (!thinkingEl && isThinking) {
+            thinkingEl = document.createElement('div');
+            thinkingEl.className = 'thinking-section';
+            contentEl.insertBefore(thinkingEl, contentEl.firstChild);
+        }
+
+        if (thinkingEl) {
+            if (thinkingContent) {
+                // Show thinking content in a collapsible details element
+                thinkingEl.innerHTML = `
+                    <details class="thinking-details" open>
+                        <summary class="thinking-summary">
+                            <span class="thinking-icon pulse">&#128173;</span> Thinking...
+                        </summary>
+                        <div class="thinking-content">${this.renderMarkdown(thinkingContent)}</div>
+                    </details>
+                `;
+            } else if (isThinking) {
+                // Show just the thinking indicator
+                thinkingEl.innerHTML = `
+                    <div class="thinking-indicator">
+                        <span class="thinking-icon pulse">&#128173;</span> Thinking...
+                    </div>
+                `;
+            }
+        }
+
+        // Update height
+        const div = wrapper.querySelector('.node');
+        if (div && !div.classList.contains('viewport-fitted')) {
+            wrapper.setAttribute('height', div.offsetHeight + 10);
+        }
+    }
+
+    /**
+     * Finalize thinking display after streaming completes
+     * @param {string} nodeId - Node ID
+     * @param {string} thinkingContent - Final thinking content
+     */
+    finalizeThinking(nodeId, thinkingContent) {
+        const wrapper = this.nodeElements.get(nodeId);
+        if (!wrapper) return;
+
+        const thinkingEl = wrapper.querySelector('.thinking-section');
+        if (thinkingEl && thinkingContent) {
+            // Show collapsed thinking section with expand option
+            thinkingEl.innerHTML = `
+                <details class="thinking-details">
+                    <summary class="thinking-summary">
+                        <span class="thinking-icon">&#128173;</span> Thinking (click to expand)
+                    </summary>
+                    <div class="thinking-content">${this.renderMarkdown(thinkingContent)}</div>
+                </details>
+            `;
+        } else if (thinkingEl && !thinkingContent) {
+            // Remove empty thinking section
+            thinkingEl.remove();
+        }
+
+        // Update height
+        const div = wrapper.querySelector('.node');
+        if (div && !div.classList.contains('viewport-fitted')) {
+            wrapper.setAttribute('height', div.offsetHeight + 10);
+        }
+    }
+
+    /**
      * Update node title/summary text (for remote sync)
      * @param {string} nodeId - Node ID
      * @param {Object} node - Full node object with title, summary, content

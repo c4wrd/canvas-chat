@@ -241,6 +241,7 @@ class ChatRequest(BaseModel):
     base_url: str | None = None
     temperature: float = 0.7
     max_tokens: int | None = None
+    reasoning_effort: str | None = None  # "none", "low", "medium", "high"
 
 
 class SummarizeRequest(BaseModel):
@@ -1347,6 +1348,10 @@ async def chat(request: ChatRequest, http_request: Request):
     if request.max_tokens:
         kwargs["max_tokens"] = request.max_tokens
 
+    # Add reasoning_effort if provided (maps to provider-specific thinking params)
+    if request.reasoning_effort and request.reasoning_effort != "none":
+        kwargs["reasoning_effort"] = request.reasoning_effort
+
     # Add API key if provided
     if request.api_key:
         kwargs["api_key"] = request.api_key
@@ -1363,6 +1368,13 @@ async def chat(request: ChatRequest, http_request: Request):
             response = await litellm.acompletion(**kwargs)
 
             async for chunk in response:
+                # Check for thinking/reasoning content (extended thinking)
+                if chunk.choices and hasattr(chunk.choices[0].delta, "reasoning_content"):
+                    reasoning = chunk.choices[0].delta.reasoning_content
+                    if reasoning:
+                        yield {"event": "thinking", "data": reasoning}
+
+                # Regular content
                 if chunk.choices and chunk.choices[0].delta.content:
                     content = chunk.choices[0].delta.content
                     yield {"event": "message", "data": content}

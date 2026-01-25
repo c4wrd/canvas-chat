@@ -685,6 +685,22 @@ class Storage {
         localStorage.setItem('canvas-chat-flashcard-strictness', value);
     }
 
+    /**
+     * Get reasoning effort level for extended thinking
+     * @returns {string} - 'none', 'low', 'medium', or 'high' (default: 'none')
+     */
+    getReasoningEffort() {
+        return localStorage.getItem('canvas-chat-reasoning-effort') || 'none';
+    }
+
+    /**
+     * Set reasoning effort level for extended thinking
+     * @param {string} value - 'none', 'low', 'medium', or 'high'
+     */
+    setReasoningEffort(value) {
+        localStorage.setItem('canvas-chat-reasoning-effort', value);
+    }
+
     // --- Custom Models (localStorage) ---
 
     /**

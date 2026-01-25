@@ -56,12 +56,20 @@ import { readSSEStream, normalizeText } from './sse.js';
  * Callback for stream completion
  * @callback OnDoneCallback
  * @param {string} fullContent - Complete response content
+ * @param {string} [thinkingContent] - Complete thinking/reasoning content (if any)
  */
 
 /**
  * Callback for stream errors
  * @callback OnErrorCallback
  * @param {Error} error - Error object
+ */
+
+/**
+ * Callback for thinking/reasoning chunks
+ * @callback OnThinkingCallback
+ * @param {string} chunk - New thinking chunk
+ * @param {string} fullThinking - Accumulated thinking content so far
  */
 
 // =============================================================================
@@ -253,14 +261,25 @@ class Chat {
      * @param {Array<ChatMessage>} messages - Array of {role, content} messages
      * @param {string} model - Model ID (e.g., "openai/gpt-4o")
      * @param {OnChunkCallback|null} onChunk - Callback for each chunk, or null
-     * @param {OnDoneCallback} onDone - Callback when complete
+     * @param {OnDoneCallback} onDone - Callback when complete (receives content and thinkingContent)
      * @param {OnErrorCallback} onError - Callback on error
-     * @param {AbortController} [abortController] - Optional abort controller
+     * @param {Object} [options] - Optional parameters
+     * @param {AbortController} [options.abortController] - Abort controller
+     * @param {string} [options.reasoningEffort] - Reasoning level: "none", "low", "medium", "high"
+     * @param {Function} [options.onThinking] - Callback for thinking chunks (chunk, fullThinking)
      * @returns {Promise<string>} Normalized full response content
      */
-    async sendMessage(messages, model, onChunk, onDone, onError, abortController = null) {
-        if (!abortController) {
-            abortController = new AbortController();
+    async sendMessage(messages, model, onChunk, onDone, onError, options = {}) {
+        // Support legacy signature where 6th param is AbortController
+        let abortController, reasoningEffort, onThinking;
+        if (options instanceof AbortController || options === null) {
+            abortController = options || new AbortController();
+            reasoningEffort = null;
+            onThinking = null;
+        } else {
+            abortController = options.abortController || new AbortController();
+            reasoningEffort = options.reasoningEffort || null;
+            onThinking = options.onThinking || null;
         }
 
         const apiKey = await this.ensureCopilotAuthFresh(model);
@@ -275,6 +294,11 @@ class Chat {
 
         if (baseUrl) {
             requestBody.base_url = baseUrl;
+        }
+
+        // Add reasoning_effort if provided and not "none"
+        if (reasoningEffort && reasoningEffort !== 'none') {
+            requestBody.reasoning_effort = reasoningEffort;
         }
 
         try {
@@ -292,10 +316,16 @@ class Chat {
             }
 
             let fullContent = '';
+            let thinkingContent = '';
 
             await readSSEStream(response, {
                 onEvent: (eventType, data) => {
-                    if (eventType === 'message' && data) {
+                    if (eventType === 'thinking' && data) {
+                        thinkingContent += data;
+                        if (onThinking) {
+                            onThinking(data, thinkingContent);
+                        }
+                    } else if (eventType === 'message' && data) {
                         fullContent += data;
                         if (onChunk) {
                             onChunk(data, fullContent);
@@ -304,7 +334,7 @@ class Chat {
                 },
                 onDone: () => {
                     if (onDone) {
-                        onDone(normalizeText(fullContent));
+                        onDone(normalizeText(fullContent), thinkingContent);
                     }
                 },
                 onError: (err) => {
