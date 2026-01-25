@@ -95,8 +95,20 @@
                 <button id="sessions-btn" class="icon-btn" title="Sessions">📚</button>
                 <button id="settings-btn" class="icon-btn" title="Settings">⚙️</button>
                 <button id="help-btn" class="icon-btn" title="Help (?)">❓</button>
-                <button id="export-btn" class="icon-btn" title="Export">💾</button>
-                <button id="import-btn" class="icon-btn" title="Import">📂</button>
+                <div class="toolbar-dropdown">
+                    <button id="export-btn" class="icon-btn" title="Export">💾</button>
+                    <div id="export-menu" class="toolbar-dropdown-menu" style="display: none;">
+                        <button class="toolbar-dropdown-item" data-action="export-current">Export Current Session</button>
+                        <button class="toolbar-dropdown-item" data-action="export-all">Export All Sessions</button>
+                    </div>
+                </div>
+                <div class="toolbar-dropdown">
+                    <button id="import-btn" class="icon-btn" title="Import">📂</button>
+                    <div id="import-menu" class="toolbar-dropdown-menu" style="display: none;">
+                        <button class="toolbar-dropdown-item" data-action="import-session">Import Session (.canvaschat)</button>
+                        <button class="toolbar-dropdown-item" data-action="import-backup">Import Backup (.canvaschat-backup)</button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -395,8 +407,9 @@
             </div>
         </div>
 
-        <!-- Hidden file input for import -->
+        <!-- Hidden file inputs for import -->
         <input type="file" id="import-file-input" accept=".canvaschat" style="display: none" />
+        <input type="file" id="import-backup-input" accept=".canvaschat-backup" style="display: none" />
 
         <!-- Hidden file input for PDF, image, and CSV upload -->
         <input

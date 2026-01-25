@@ -45,7 +45,7 @@ class ImageGenerationFeature extends FeaturePlugin {
                         <div class="api-key-group">
                             <label for="image-gen-model">Model</label>
                             <select id="image-gen-model" class="modal-select">
-                                <option value="gemini/nano-banana-pro" selected>Nano Banana Pro (Google) - Default</option>
+                                <option value="gemini/gemini-3-pro-image-preview" selected>Gemini 3 Pro (Google) - Default</option>
                                 <option value="dall-e-3">DALL-E 3 (OpenAI) - Best quality</option>
                                 <option value="dall-e-2">DALL-E 2 (OpenAI) - Lower cost</option>
                                 <option value="gemini/imagen-4.0-generate-001">Imagen 4.0 (Google) - Fast</option>
@@ -175,7 +175,7 @@ class ImageGenerationFeature extends FeaturePlugin {
 
         const model = modelSelect.value;
 
-        if (model === 'gemini/nano-banana-pro') {
+        if (model === 'gemini/gemini-3-pro-image-preview') {
             sizeSelect.innerHTML = `
                 <option value="1024x1024" selected>Square (1024x1024)</option>
                 <option value="2048x2048">Square (2048x2048)</option>
@@ -196,7 +196,7 @@ class ImageGenerationFeature extends FeaturePlugin {
      */
     async generateImage() {
         // Get settings from modal
-        const model = document.getElementById('image-gen-model')?.value || 'gemini/nano-banana-pro';
+        const model = document.getElementById('image-gen-model')?.value || 'gemini/gemini-3-pro-image-preview';
         const size = document.getElementById('image-gen-size')?.value || '1024x1024';
         const quality = document.getElementById('image-gen-quality')?.value || 'hd';
 

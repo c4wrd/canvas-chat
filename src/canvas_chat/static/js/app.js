@@ -885,19 +885,8 @@ class App {
         this.multiplayerBtn.addEventListener('click', () => this.handleMultiplayerClick());
         this.multiplayerLeaveBtn.addEventListener('click', () => this.leaveMultiplayer());
 
-        // Export/Import
-        document.getElementById('export-btn').addEventListener('click', () => {
-            this.exportSession();
-        });
-        document.getElementById('import-btn').addEventListener('click', () => {
-            document.getElementById('import-file-input').click();
-        });
-        document.getElementById('import-file-input').addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                this.importSession(e.target.files[0]);
-                e.target.value = ''; // Reset for next import
-            }
-        });
+        // Export/Import dropdowns
+        this.setupExportImportDropdowns();
 
         // PDF attachment
         document.getElementById('attach-btn').addEventListener('click', () => {
@@ -4064,6 +4053,111 @@ print("Hello from Pyodide!")
         } catch (err) {
             alert(`Import failed: ${err.message}`);
         }
+    }
+
+    /**
+     * Import all sessions from a backup file.
+     * @param {File} file
+     */
+    async importBackup(file) {
+        try {
+            const result = await storage.importAllSessions(file);
+            alert(`Imported ${result.imported} sessions${result.skipped ? ` (${result.skipped} skipped)` : ''}`);
+        } catch (err) {
+            alert(`Import failed: ${err.message}`);
+        }
+    }
+
+    /**
+     * Setup export/import dropdown menus.
+     */
+    setupExportImportDropdowns() {
+        const exportBtn = document.getElementById('export-btn');
+        const exportMenu = document.getElementById('export-menu');
+        const importBtn = document.getElementById('import-btn');
+        const importMenu = document.getElementById('import-menu');
+
+        // Toggle export menu
+        exportBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isVisible = exportMenu.style.display !== 'none';
+            this.closeAllDropdowns();
+            if (!isVisible) {
+                this.positionDropdown(exportBtn, exportMenu);
+                exportMenu.style.display = 'block';
+            }
+        });
+
+        // Toggle import menu
+        importBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isVisible = importMenu.style.display !== 'none';
+            this.closeAllDropdowns();
+            if (!isVisible) {
+                this.positionDropdown(importBtn, importMenu);
+                importMenu.style.display = 'block';
+            }
+        });
+
+        // Handle export menu actions
+        exportMenu.addEventListener('click', (e) => {
+            const action = e.target.dataset.action;
+            if (action === 'export-current') {
+                this.exportSession();
+            } else if (action === 'export-all') {
+                storage.exportAllSessions();
+            }
+            this.closeAllDropdowns();
+        });
+
+        // Handle import menu actions
+        importMenu.addEventListener('click', (e) => {
+            const action = e.target.dataset.action;
+            if (action === 'import-session') {
+                document.getElementById('import-file-input').click();
+            } else if (action === 'import-backup') {
+                document.getElementById('import-backup-input').click();
+            }
+            this.closeAllDropdowns();
+        });
+
+        // File input handlers
+        document.getElementById('import-file-input').addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                this.importSession(e.target.files[0]);
+                e.target.value = '';
+            }
+        });
+
+        document.getElementById('import-backup-input').addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                this.importBackup(e.target.files[0]);
+                e.target.value = '';
+            }
+        });
+
+        // Close dropdowns when clicking outside
+        document.addEventListener('click', () => this.closeAllDropdowns());
+    }
+
+    /**
+     * Close all toolbar dropdown menus.
+     */
+    closeAllDropdowns() {
+        document.querySelectorAll('.toolbar-dropdown-menu').forEach((menu) => {
+            menu.style.display = 'none';
+        });
+    }
+
+    /**
+     * Position a dropdown menu below its trigger button.
+     * @param {HTMLElement} button - The trigger button
+     * @param {HTMLElement} menu - The dropdown menu
+     */
+    positionDropdown(button, menu) {
+        const rect = button.getBoundingClientRect();
+        menu.style.top = `${rect.bottom + 4}px`;
+        menu.style.right = `${window.innerWidth - rect.right}px`;
     }
 
     /**

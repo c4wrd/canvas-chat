@@ -237,6 +237,88 @@ class Storage {
     }
 
     /**
+     * Export all sessions to a single JSON file (.canvaschat-backup)
+     * @returns {Promise<void>}
+     */
+    async exportAllSessions() {
+        const sessions = await this.listSessions();
+
+        if (sessions.length === 0) {
+            alert('No sessions to export');
+            return;
+        }
+
+        const exportData = {
+            version: 1,
+            type: 'backup',
+            exported_at: new Date().toISOString(),
+            session_count: sessions.length,
+            sessions: sessions,
+        };
+
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `canvas-chat-backup-${Date.now()}.canvaschat-backup`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    /**
+     * Import all sessions from a backup file (.canvaschat-backup)
+     * @param {File} file
+     * @returns {Promise<{imported: number, skipped: number}>}
+     */
+    async importAllSessions(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+
+            reader.onload = async (event) => {
+                try {
+                    const data = JSON.parse(event.target.result);
+
+                    // Validate structure
+                    if (data.type !== 'backup' || !Array.isArray(data.sessions)) {
+                        throw new Error('Invalid backup file format');
+                    }
+
+                    let imported = 0;
+                    let skipped = 0;
+
+                    for (const session of data.sessions) {
+                        // Validate each session
+                        if (!session.nodes || !session.edges) {
+                            skipped++;
+                            continue;
+                        }
+
+                        // Generate new ID to avoid conflicts
+                        const newSession = {
+                            ...session,
+                            id: crypto.randomUUID(),
+                            imported_at: Date.now(),
+                        };
+
+                        await this.saveSession(newSession);
+                        imported++;
+                    }
+
+                    resolve({ imported, skipped });
+                } catch (error) {
+                    reject(error);
+                }
+            };
+
+            reader.onerror = () => reject(reader.error);
+            reader.readAsText(file);
+        });
+    }
+
+    /**
      * Import session from .canvaschat file
      * @param {File} file
      * @returns {Promise<Session>}

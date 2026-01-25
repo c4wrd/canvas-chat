@@ -77,6 +77,19 @@ SERVER_START_TIME = str(time.time())
 
 app = FastAPI(title="Canvas Chat", version=__version__)
 
+
+# Disable caching in dev mode
+@app.middleware("http")
+async def dev_no_cache_middleware(request: Request, call_next):
+    """Add no-cache headers to static files in dev mode."""
+    response = await call_next(request)
+    if DEV_MODE and request.url.path.startswith("/static"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 # Register plugin-specific endpoints (must be after app creation)
 git_repo_handler.register_endpoints(app)
 code_handler.register_endpoints(app)
@@ -1740,7 +1753,7 @@ class ImageGenerationRequest(BaseModel):
     """Request body for AI image generation."""
 
     prompt: str  # Text description of the desired image
-    model: str = "gemini/nano-banana-pro"  # Image generation model
+    model: str = "gemini/gemini-3-pro-image-preview"  # Image generation model
     size: str = "1024x1024"  # Image dimensions
     quality: str = "hd"  # "standard" or "hd" (DALL-E 3)
     n: int = 1  # Number of images to generate
@@ -1755,7 +1768,7 @@ async def generate_image(request: ImageGenerationRequest):
 
     Supports multiple providers:
     - OpenAI: dall-e-3, dall-e-2
-    - Google: gemini/nano-banana-pro, gemini/imagen-4.0-generate-001
+    - Google: gemini/gemini-3-pro-image-preview, gemini/imagen-4.0-generate-001
     """
     # Inject admin credentials if in admin mode
     inject_admin_credentials(request)
