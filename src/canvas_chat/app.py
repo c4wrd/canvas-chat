@@ -1740,7 +1740,7 @@ class ImageGenerationRequest(BaseModel):
     """Request body for AI image generation."""
 
     prompt: str  # Text description of the desired image
-    model: str = "dall-e-3"  # Image generation model
+    model: str = "gemini/nano-banana-pro"  # Image generation model
     size: str = "1024x1024"  # Image dimensions
     quality: str = "hd"  # "standard" or "hd" (DALL-E 3)
     n: int = 1  # Number of images to generate
@@ -1755,7 +1755,7 @@ async def generate_image(request: ImageGenerationRequest):
 
     Supports multiple providers:
     - OpenAI: dall-e-3, dall-e-2
-    - Google: gemini/imagen-4.0-generate-001
+    - Google: gemini/nano-banana-pro, gemini/imagen-4.0-generate-001
     """
     # Inject admin credentials if in admin mode
     inject_admin_credentials(request)

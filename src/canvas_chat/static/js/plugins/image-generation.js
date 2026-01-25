@@ -45,6 +45,7 @@ class ImageGenerationFeature extends FeaturePlugin {
                         <div class="api-key-group">
                             <label for="image-gen-model">Model</label>
                             <select id="image-gen-model" class="modal-select">
+                                <option value="gemini/nano-banana-pro" selected>Nano Banana Pro (Google) - Default</option>
                                 <option value="dall-e-3">DALL-E 3 (OpenAI) - Best quality</option>
                                 <option value="dall-e-2">DALL-E 2 (OpenAI) - Lower cost</option>
                                 <option value="gemini/imagen-4.0-generate-001">Imagen 4.0 (Google) - Fast</option>
@@ -143,8 +144,14 @@ class ImageGenerationFeature extends FeaturePlugin {
         this.modalManager.showPluginModal('image-generation', 'settings');
 
         // Setup event listeners
+        const modelSelect = document.getElementById('image-gen-model');
         const generateBtn = document.getElementById('image-gen-generate');
         const cancelBtn = document.getElementById('image-gen-cancel');
+
+        if (modelSelect) {
+            modelSelect.onchange = () => this.updateSizeOptions();
+            this.updateSizeOptions();
+        }
 
         if (generateBtn) {
             generateBtn.onclick = () => this.generateImage();
@@ -156,11 +163,40 @@ class ImageGenerationFeature extends FeaturePlugin {
     }
 
     /**
+     * Update size options based on selected model.
+     */
+    updateSizeOptions() {
+        const modelSelect = document.getElementById('image-gen-model');
+        const sizeSelect = document.getElementById('image-gen-size');
+
+        if (!modelSelect || !sizeSelect) {
+            return;
+        }
+
+        const model = modelSelect.value;
+
+        if (model === 'gemini/nano-banana-pro') {
+            sizeSelect.innerHTML = `
+                <option value="1024x1024" selected>Square (1024x1024)</option>
+                <option value="2048x2048">Square (2048x2048)</option>
+                <option value="4096x4096">Square (4096x4096)</option>
+            `;
+            return;
+        }
+
+        sizeSelect.innerHTML = `
+            <option value="1024x1024" selected>Square (1024x1024)</option>
+            <option value="1792x1024">Landscape (1792x1024)</option>
+            <option value="1024x1792">Portrait (1024x1792)</option>
+        `;
+    }
+
+    /**
      * Generate the image with the selected settings.
      */
     async generateImage() {
         // Get settings from modal
-        const model = document.getElementById('image-gen-model')?.value || 'dall-e-3';
+        const model = document.getElementById('image-gen-model')?.value || 'gemini/nano-banana-pro';
         const size = document.getElementById('image-gen-size')?.value || '1024x1024';
         const quality = document.getElementById('image-gen-quality')?.value || 'hd';
 
