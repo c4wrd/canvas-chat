@@ -60,6 +60,7 @@ from canvas_chat.plugins import (
     youtube_handler,  # noqa: F401
 )
 from canvas_chat.plugins.pdf_handler import MAX_PDF_SIZE
+from canvas_chat.tool_registry import ToolRegistry
 from canvas_chat.url_fetch_registry import UrlFetchRegistry
 
 # Configure logging
@@ -242,6 +243,10 @@ class ChatRequest(BaseModel):
     temperature: float = 0.7
     max_tokens: int | None = None
     reasoning_effort: str | None = None  # "none", "low", "medium", "high"
+    # Tool calling options
+    enable_tools: bool = False
+    tools: list[str] | None = None  # Specific tool IDs, or None for all enabled
+    max_tool_iterations: int = 10
 
 
 class SummarizeRequest(BaseModel):
@@ -1295,6 +1300,16 @@ async def list_models() -> list[ModelInfo]:
     return models
 
 
+@app.get("/api/tools")
+async def list_tools() -> list[dict]:
+    """List available LLM tools.
+
+    Returns a list of tools that can be used with the chat endpoint
+    when enable_tools is True.
+    """
+    return ToolRegistry.list_tools_info()
+
+
 @app.post("/api/provider-models")
 async def get_provider_models(request: ProviderModelsRequest) -> list[ModelInfo]:
     """Fetch available models from a specific provider using the provided API key."""
@@ -1333,6 +1348,11 @@ async def chat(request: ChatRequest, http_request: Request):
 
     The frontend sends the full conversation context (resolved from the DAG).
     We proxy to LiteLLM and stream the response back via SSE.
+
+    When enable_tools is True, this implements an agentic loop:
+    1. Send messages + tools to LLM
+    2. If LLM returns tool_calls, execute them and append results
+    3. Repeat until LLM returns content without tool_calls or max iterations reached
     """
     # Inject admin credentials if in admin mode
     inject_admin_credentials(request)
@@ -1362,25 +1382,151 @@ async def chat(request: ChatRequest, http_request: Request):
 
     kwargs = prepare_copilot_openai_request(kwargs, request.model, request.api_key)
 
+    # Add tools if enabled
+    tools_enabled = request.enable_tools
+    openai_tools = []
+    if tools_enabled:
+        openai_tools = ToolRegistry.get_openai_tools(request.tools)
+        if openai_tools:
+            kwargs["tools"] = openai_tools
+            kwargs["tool_choice"] = "auto"
+
     async def generate():
-        """Generate SSE events from the LLM stream."""
+        """Generate SSE events from the LLM stream with optional tool calling loop."""
         try:
-            response = await litellm.acompletion(**kwargs)
+            # Copy messages for the agentic loop (we may add tool results)
+            messages = kwargs["messages"].copy()
+            iteration = 0
+            max_iterations = request.max_tool_iterations
 
-            async for chunk in response:
-                # Check for thinking/reasoning content (extended thinking)
-                if chunk.choices and hasattr(chunk.choices[0].delta, "reasoning_content"):
-                    reasoning = chunk.choices[0].delta.reasoning_content
-                    if reasoning:
-                        yield {"event": "thinking", "data": reasoning}
+            while True:
+                iteration += 1
+                if iteration > max_iterations:
+                    yield {
+                        "event": "error",
+                        "data": f"Max tool iterations ({max_iterations}) reached",
+                    }
+                    break
 
-                # Regular content
-                if chunk.choices and chunk.choices[0].delta.content:
-                    content = chunk.choices[0].delta.content
-                    yield {"event": "message", "data": content}
+                # Update messages in kwargs
+                loop_kwargs = {**kwargs, "messages": messages}
 
-            # Send completion signal
-            yield {"event": "done", "data": ""}
+                response = await litellm.acompletion(**loop_kwargs)
+
+                # Collect the streamed response
+                content_parts = []
+                tool_calls_data: dict[int, dict] = {}  # index -> {id, name, arguments}
+                finish_reason = None
+
+                async for chunk in response:
+                    # Check for thinking/reasoning content (extended thinking)
+                    if chunk.choices and hasattr(chunk.choices[0].delta, "reasoning_content"):
+                        reasoning = chunk.choices[0].delta.reasoning_content
+                        if reasoning:
+                            yield {"event": "thinking", "data": reasoning}
+
+                    # Regular content
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        content = chunk.choices[0].delta.content
+                        content_parts.append(content)
+                        yield {"event": "message", "data": content}
+
+                    # Tool calls (streamed incrementally)
+                    if (
+                        tools_enabled
+                        and chunk.choices
+                        and hasattr(chunk.choices[0].delta, "tool_calls")
+                        and chunk.choices[0].delta.tool_calls
+                    ):
+                        for tc in chunk.choices[0].delta.tool_calls:
+                            idx = tc.index if hasattr(tc, "index") else 0
+                            if idx not in tool_calls_data:
+                                tool_calls_data[idx] = {
+                                    "id": "",
+                                    "name": "",
+                                    "arguments": "",
+                                }
+                            if tc.id:
+                                tool_calls_data[idx]["id"] = tc.id
+                            if tc.function and tc.function.name:
+                                tool_calls_data[idx]["name"] = tc.function.name
+                            if tc.function and tc.function.arguments:
+                                tool_calls_data[idx]["arguments"] += tc.function.arguments
+
+                    # Track finish reason
+                    if chunk.choices and chunk.choices[0].finish_reason:
+                        finish_reason = chunk.choices[0].finish_reason
+
+                # Check if we have tool calls to execute
+                if tools_enabled and tool_calls_data and finish_reason == "tool_calls":
+                    # Build assistant message with tool_calls
+                    full_content = "".join(content_parts)
+                    assistant_message = {
+                        "role": "assistant",
+                        "content": full_content if full_content else None,
+                        "tool_calls": [
+                            {
+                                "id": tc["id"],
+                                "type": "function",
+                                "function": {
+                                    "name": tc["name"],
+                                    "arguments": tc["arguments"],
+                                },
+                            }
+                            for tc in tool_calls_data.values()
+                        ],
+                    }
+                    messages.append(assistant_message)
+
+                    # Execute each tool call
+                    for tc in tool_calls_data.values():
+                        tool_id = tc["id"]
+                        tool_name = tc["name"]
+                        try:
+                            arguments = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                        except json.JSONDecodeError:
+                            arguments = {}
+
+                        # Emit tool_call event
+                        yield {
+                            "event": "tool_call",
+                            "data": json.dumps({
+                                "id": tool_id,
+                                "name": tool_name,
+                                "arguments": arguments,
+                            }),
+                        }
+
+                        # Execute the tool
+                        try:
+                            result = await ToolRegistry.execute_tool(tool_name, arguments)
+                        except Exception as e:
+                            logger.error(f"Tool execution error ({tool_name}): {e}")
+                            result = {"error": str(e)}
+
+                        # Emit tool_result event
+                        yield {
+                            "event": "tool_result",
+                            "data": json.dumps({
+                                "id": tool_id,
+                                "name": tool_name,
+                                "result": result,
+                            }),
+                        }
+
+                        # Add tool result to messages
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_id,
+                            "content": json.dumps(result),
+                        })
+
+                    # Continue the loop to get the next response
+                    continue
+                else:
+                    # No tool calls or tools not enabled - we're done
+                    yield {"event": "done", "data": ""}
+                    break
 
         except litellm.AuthenticationError as e:
             error_msg = str(e)

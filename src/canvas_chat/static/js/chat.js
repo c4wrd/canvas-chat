@@ -72,6 +72,34 @@ import { readSSEStream, normalizeText } from './sse.js';
  * @param {string} fullThinking - Accumulated thinking content so far
  */
 
+/**
+ * Tool call event data
+ * @typedef {Object} ToolCallData
+ * @property {string} id - Tool call ID
+ * @property {string} name - Tool name
+ * @property {Object} arguments - Tool arguments
+ */
+
+/**
+ * Tool result event data
+ * @typedef {Object} ToolResultData
+ * @property {string} id - Tool call ID
+ * @property {string} name - Tool name
+ * @property {Object} result - Tool execution result
+ */
+
+/**
+ * Callback for tool call events
+ * @callback OnToolCallCallback
+ * @param {ToolCallData} toolCall - Tool call data
+ */
+
+/**
+ * Callback for tool result events
+ * @callback OnToolResultCallback
+ * @param {ToolResultData} toolResult - Tool result data
+ */
+
 // =============================================================================
 // Chat Class
 // =============================================================================
@@ -267,19 +295,35 @@ class Chat {
      * @param {AbortController} [options.abortController] - Abort controller
      * @param {string} [options.reasoningEffort] - Reasoning level: "none", "low", "medium", "high"
      * @param {Function} [options.onThinking] - Callback for thinking chunks (chunk, fullThinking)
+     * @param {boolean} [options.enableTools] - Enable tool calling
+     * @param {string[]} [options.tools] - Specific tool IDs, or null for all enabled
+     * @param {number} [options.maxToolIterations] - Max tool calling iterations (default: 10)
+     * @param {OnToolCallCallback} [options.onToolCall] - Callback when a tool is called
+     * @param {OnToolResultCallback} [options.onToolResult] - Callback when a tool result is received
      * @returns {Promise<string>} Normalized full response content
      */
     async sendMessage(messages, model, onChunk, onDone, onError, options = {}) {
         // Support legacy signature where 6th param is AbortController
         let abortController, reasoningEffort, onThinking;
+        let enableTools, tools, maxToolIterations, onToolCall, onToolResult;
         if (options instanceof AbortController || options === null) {
             abortController = options || new AbortController();
             reasoningEffort = null;
             onThinking = null;
+            enableTools = false;
+            tools = null;
+            maxToolIterations = 10;
+            onToolCall = null;
+            onToolResult = null;
         } else {
             abortController = options.abortController || new AbortController();
             reasoningEffort = options.reasoningEffort || null;
             onThinking = options.onThinking || null;
+            enableTools = options.enableTools || false;
+            tools = options.tools || null;
+            maxToolIterations = options.maxToolIterations || 10;
+            onToolCall = options.onToolCall || null;
+            onToolResult = options.onToolResult || null;
         }
 
         const apiKey = await this.ensureCopilotAuthFresh(model);
@@ -301,6 +345,17 @@ class Chat {
             requestBody.reasoning_effort = reasoningEffort;
         }
 
+        // Add tool options if enabled
+        if (enableTools) {
+            requestBody.enable_tools = true;
+            if (tools) {
+                requestBody.tools = tools;
+            }
+            if (maxToolIterations !== 10) {
+                requestBody.max_tool_iterations = maxToolIterations;
+            }
+        }
+
         try {
             const response = await fetch(apiUrl('/api/chat'), {
                 method: 'POST',
@@ -317,6 +372,7 @@ class Chat {
 
             let fullContent = '';
             let thinkingContent = '';
+            const toolCalls = [];
 
             await readSSEStream(response, {
                 onEvent: (eventType, data) => {
@@ -330,11 +386,30 @@ class Chat {
                         if (onChunk) {
                             onChunk(data, fullContent);
                         }
+                    } else if (eventType === 'tool_call' && data) {
+                        try {
+                            const toolCallData = JSON.parse(data);
+                            toolCalls.push(toolCallData);
+                            if (onToolCall) {
+                                onToolCall(toolCallData);
+                            }
+                        } catch (e) {
+                            console.error('Failed to parse tool_call:', e);
+                        }
+                    } else if (eventType === 'tool_result' && data) {
+                        try {
+                            const toolResultData = JSON.parse(data);
+                            if (onToolResult) {
+                                onToolResult(toolResultData);
+                            }
+                        } catch (e) {
+                            console.error('Failed to parse tool_result:', e);
+                        }
                     }
                 },
                 onDone: () => {
                     if (onDone) {
-                        onDone(normalizeText(fullContent), thinkingContent);
+                        onDone(normalizeText(fullContent), thinkingContent, toolCalls);
                     }
                 },
                 onError: (err) => {

@@ -117,6 +117,10 @@ class App {
         this.sendBtn = document.getElementById('send-btn');
         this.modelPicker = document.getElementById('model-picker');
         this.reasoningPicker = document.getElementById('reasoning-picker');
+        this.toolsToggleBtn = document.getElementById('tools-toggle-btn');
+        this.toolsMenu = document.getElementById('tools-menu');
+        this.toolsEnabledCheckbox = document.getElementById('tools-enabled-checkbox');
+        this.toolsList = document.getElementById('tools-list');
         this.sessionName = document.getElementById('session-name');
         this.budgetFill = document.getElementById('budget-fill');
         this.budgetText = document.getElementById('budget-text');
@@ -188,6 +192,9 @@ class App {
 
         // Initialize reasoning picker
         this.initReasoningPicker();
+
+        // Initialize tools menu
+        this.initToolsMenu();
 
         // Initialize plugin system (must happen before loadSession since features are accessed during session load)
         await this.initializePluginSystem();
@@ -307,6 +314,169 @@ class App {
         } else {
             this.reasoningPicker.classList.remove('active');
         }
+    }
+
+    /**
+     * Initialize the tools toggle menu
+     */
+    initToolsMenu() {
+        if (!this.toolsToggleBtn || !this.toolsMenu) return;
+
+        // Load saved state
+        const toolsEnabled = storage.getToolsEnabled();
+        this.toolsEnabledCheckbox.checked = toolsEnabled;
+        this.updateToolsButtonState();
+
+        // Toggle menu on button click
+        this.toolsToggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isVisible = this.toolsMenu.style.display !== 'none';
+            if (isVisible) {
+                this.hideToolsMenu();
+            } else {
+                this.showToolsMenu();
+            }
+        });
+
+        // Close menu when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!this.toolsMenu.contains(e.target) && e.target !== this.toolsToggleBtn) {
+                this.hideToolsMenu();
+            }
+        });
+
+        // Handle master toggle
+        this.toolsEnabledCheckbox.addEventListener('change', () => {
+            storage.setToolsEnabled(this.toolsEnabledCheckbox.checked);
+            this.updateToolsButtonState();
+            this.updateToolItemsState();
+        });
+
+        // Fetch available tools
+        this.fetchAvailableTools();
+    }
+
+    /**
+     * Show the tools menu and fetch tools if needed
+     */
+    showToolsMenu() {
+        this.toolsMenu.style.display = 'block';
+        this.fetchAvailableTools();
+    }
+
+    /**
+     * Hide the tools menu
+     */
+    hideToolsMenu() {
+        this.toolsMenu.style.display = 'none';
+    }
+
+    /**
+     * Update the tools button visual state
+     */
+    updateToolsButtonState() {
+        if (!this.toolsToggleBtn) return;
+
+        if (storage.getToolsEnabled()) {
+            this.toolsToggleBtn.classList.add('active');
+        } else {
+            this.toolsToggleBtn.classList.remove('active');
+        }
+    }
+
+    /**
+     * Update the enabled/disabled state of tool items based on master toggle
+     */
+    updateToolItemsState() {
+        const toolsEnabled = storage.getToolsEnabled();
+        const toolItems = this.toolsList.querySelectorAll('.tool-item');
+        toolItems.forEach(item => {
+            if (toolsEnabled) {
+                item.classList.remove('disabled');
+            } else {
+                item.classList.add('disabled');
+            }
+        });
+    }
+
+    /**
+     * Fetch available tools from the API
+     */
+    async fetchAvailableTools() {
+        if (!this.toolsList) return;
+
+        try {
+            const response = await fetch(apiUrl('/api/tools'));
+            if (!response.ok) {
+                throw new Error('Failed to fetch tools');
+            }
+
+            const tools = await response.json();
+
+            if (tools.length === 0) {
+                this.toolsList.innerHTML = '<div class="tools-empty">No tools available</div>';
+                return;
+            }
+
+            // Get currently enabled tools from storage
+            const enabledTools = storage.getEnabledTools();
+            const toolsEnabled = storage.getToolsEnabled();
+
+            // Render tool items
+            this.toolsList.innerHTML = tools.map(tool => {
+                // If enabledTools is null, all tools are enabled by default
+                const isChecked = enabledTools === null || enabledTools.includes(tool.id);
+                const disabledClass = toolsEnabled ? '' : 'disabled';
+                return `
+                    <label class="tool-item ${disabledClass}">
+                        <input type="checkbox" class="tool-checkbox" data-tool-id="${tool.id}" ${isChecked ? 'checked' : ''} />
+                        <div class="tool-info">
+                            <div class="tool-name">${this.escapeHtml(tool.name)}</div>
+                            <div class="tool-description">${this.escapeHtml(tool.description)}</div>
+                        </div>
+                    </label>
+                `;
+            }).join('');
+
+            // Add event listeners to checkboxes
+            this.toolsList.querySelectorAll('.tool-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', () => {
+                    this.saveEnabledTools();
+                });
+            });
+
+        } catch (err) {
+            console.error('Failed to fetch tools:', err);
+            this.toolsList.innerHTML = '<div class="tools-empty">Failed to load tools</div>';
+        }
+    }
+
+    /**
+     * Save the list of enabled tools to storage
+     */
+    saveEnabledTools() {
+        const checkboxes = this.toolsList.querySelectorAll('.tool-checkbox');
+        const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+
+        if (allChecked) {
+            // If all tools are enabled, store null (use all)
+            storage.setEnabledTools(null);
+        } else {
+            // Store list of enabled tool IDs
+            const enabledIds = Array.from(checkboxes)
+                .filter(cb => cb.checked)
+                .map(cb => cb.dataset.toolId);
+            storage.setEnabledTools(enabledIds);
+        }
+    }
+
+    /**
+     * Escape HTML to prevent XSS
+     */
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 
     /**
@@ -1282,6 +1452,8 @@ class App {
     buildLLMRequest(additionalParams = {}) {
         const model = this.modelPicker.value;
         const reasoningEffort = storage.getReasoningEffort();
+        const toolsEnabled = storage.getToolsEnabled();
+        const enabledTools = storage.getEnabledTools();
 
         // In admin mode, backend handles credentials
         if (this.adminMode) {
@@ -1292,6 +1464,13 @@ class App {
             // Add reasoning_effort if enabled
             if (reasoningEffort && reasoningEffort !== 'none') {
                 request.reasoning_effort = reasoningEffort;
+            }
+            // Add tool options if enabled
+            if (toolsEnabled) {
+                request.enable_tools = true;
+                if (enabledTools) {
+                    request.tools = enabledTools;
+                }
             }
             return request;
         }
@@ -1310,6 +1489,14 @@ class App {
         // Add reasoning_effort if enabled
         if (reasoningEffort && reasoningEffort !== 'none') {
             request.reasoning_effort = reasoningEffort;
+        }
+
+        // Add tool options if enabled
+        if (toolsEnabled) {
+            request.enable_tools = true;
+            if (enabledTools) {
+                request.tools = enabledTools;
+            }
         }
 
         return request;
@@ -1424,6 +1611,9 @@ class App {
             this.canvas.updateNodeThinking(aiNode.id, '', true);
         }
 
+        // Track tool executions for display
+        let toolExecutions = '';
+
         // Stream response using streamWithAbort
         this.streamWithAbort(
             aiNode.id,
@@ -1432,15 +1622,21 @@ class App {
             model,
             // onChunk
             (chunk, fullContent) => {
-                this.canvas.updateNodeContent(aiNode.id, fullContent, true);
-                this.graph.updateNode(aiNode.id, { content: fullContent });
+                const displayContent = toolExecutions + fullContent;
+                this.canvas.updateNodeContent(aiNode.id, displayContent, true);
+                this.graph.updateNode(aiNode.id, { content: displayContent });
             },
             // onDone
-            (fullContent, thinkingContent) => {
+            (fullContent, thinkingContent, toolCalls) => {
                 this.streamingManager.unregister(aiNode.id); // Auto-hides stop button
                 this.canvas.finalizeThinking(aiNode.id, thinkingContent);
-                this.canvas.updateNodeContent(aiNode.id, fullContent, false);
-                this.graph.updateNode(aiNode.id, { content: fullContent, thinking: thinkingContent || null });
+                const displayContent = toolExecutions + fullContent;
+                this.canvas.updateNodeContent(aiNode.id, displayContent, false);
+                this.graph.updateNode(aiNode.id, {
+                    content: displayContent,
+                    thinking: thinkingContent || null,
+                    toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : null,
+                });
                 this.saveSession();
                 this.generateNodeSummary(aiNode.id);
             },
@@ -1458,11 +1654,34 @@ class App {
                     humanNodeId: humanNode.id,
                 });
             },
-            // options with onThinking callback
+            // options with callbacks
             {
                 onThinking: (chunk, fullThinking) => {
                     this.canvas.updateNodeThinking(aiNode.id, fullThinking, true);
-                }
+                },
+                onToolCall: (toolCallData) => {
+                    // Format tool call as collapsed details block
+                    const argsStr = JSON.stringify(toolCallData.arguments, null, 2);
+                    toolExecutions += `<details class="tool-execution">\n<summary>Using tool: ${toolCallData.name}</summary>\n\n**Arguments:**\n\`\`\`json\n${argsStr}\n\`\`\`\n\n`;
+                    this.canvas.updateNodeContent(aiNode.id, toolExecutions + '*Executing...*', true);
+                },
+                onToolResult: (toolResultData) => {
+                    // Complete the details block with results
+                    const resultStr = JSON.stringify(toolResultData.result, null, 2);
+                    // Find and replace the incomplete details block
+                    const incompletePattern = new RegExp(
+                        `<details class="tool-execution">\\n<summary>Using tool: ${toolResultData.name}</summary>\\n\\n\\*\\*Arguments:\\*\\*\\n\\\`\\\`\\\`json\\n[\\s\\S]*?\\\`\\\`\\\`\\n\\n$`
+                    );
+                    if (incompletePattern.test(toolExecutions)) {
+                        toolExecutions = toolExecutions.replace(incompletePattern, (match) => {
+                            return match + `**Result:**\n\`\`\`json\n${resultStr}\n\`\`\`\n\n</details>\n\n`;
+                        });
+                    } else {
+                        // Fallback: just append if we can't find the incomplete block
+                        toolExecutions += `**Result:**\n\`\`\`json\n${resultStr}\n\`\`\`\n\n</details>\n\n`;
+                    }
+                    this.canvas.updateNodeContent(aiNode.id, toolExecutions + '*Processing results...*', true);
+                },
             }
         );
     }
@@ -3440,13 +3659,15 @@ print("Hello from Pyodide!")
      * @param {Array} messages - Array of {role, content} messages
      * @param {string} model - Model ID
      * @param {Function} onChunk - Callback for each chunk (chunk, fullContent)
-     * @param {Function} onDone - Callback when complete (normalizedContent, thinkingContent)
+     * @param {Function} onDone - Callback when complete (normalizedContent, thinkingContent, toolCalls)
      * @param {Function} onError - Callback on error (err)
      * @param {Object} [options] - Optional additional parameters
      * @param {Function} [options.onThinking] - Callback for thinking chunks (chunk, fullThinking)
+     * @param {Function} [options.onToolCall] - Callback for tool calls (toolCallData)
+     * @param {Function} [options.onToolResult] - Callback for tool results (toolResultData)
      */
     async streamWithAbort(nodeId, abortController, messages, model, onChunk, onDone, onError, options = {}) {
-        const { onThinking = null } = options;
+        const { onThinking = null, onToolCall = null, onToolResult = null } = options;
 
         try {
             const requestBody = this.buildLLMRequest({
@@ -3467,6 +3688,7 @@ print("Hello from Pyodide!")
 
             let fullContent = '';
             let thinkingContent = '';
+            const toolCalls = [];
 
             await readSSEStream(response, {
                 onEvent: (eventType, data) => {
@@ -3478,10 +3700,29 @@ print("Hello from Pyodide!")
                     } else if (eventType === 'message' && data) {
                         fullContent += data;
                         onChunk(data, fullContent);
+                    } else if (eventType === 'tool_call' && data) {
+                        try {
+                            const toolCallData = JSON.parse(data);
+                            toolCalls.push(toolCallData);
+                            if (onToolCall) {
+                                onToolCall(toolCallData);
+                            }
+                        } catch (e) {
+                            console.error('Failed to parse tool_call:', e);
+                        }
+                    } else if (eventType === 'tool_result' && data) {
+                        try {
+                            const toolResultData = JSON.parse(data);
+                            if (onToolResult) {
+                                onToolResult(toolResultData);
+                            }
+                        } catch (e) {
+                            console.error('Failed to parse tool_result:', e);
+                        }
                     }
                 },
                 onDone: () => {
-                    onDone(fullContent, thinkingContent);
+                    onDone(fullContent, thinkingContent, toolCalls);
                 },
                 onError: (err) => {
                     throw err;

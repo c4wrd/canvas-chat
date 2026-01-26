@@ -701,6 +701,43 @@ class Storage {
         localStorage.setItem('canvas-chat-reasoning-effort', value);
     }
 
+    /**
+     * Get whether tool calling is enabled
+     * @returns {boolean} - True if tools are enabled (default: false)
+     */
+    getToolsEnabled() {
+        return localStorage.getItem('canvas-chat-tools-enabled') === 'true';
+    }
+
+    /**
+     * Set whether tool calling is enabled
+     * @param {boolean} value - True to enable tools
+     */
+    setToolsEnabled(value) {
+        localStorage.setItem('canvas-chat-tools-enabled', value ? 'true' : 'false');
+    }
+
+    /**
+     * Get the list of enabled tool IDs
+     * @returns {string[]|null} - Array of tool IDs, or null for all tools
+     */
+    getEnabledTools() {
+        const data = localStorage.getItem('canvas-chat-enabled-tools');
+        return data ? JSON.parse(data) : null;
+    }
+
+    /**
+     * Set the list of enabled tool IDs
+     * @param {string[]|null} toolIds - Array of tool IDs, or null for all tools
+     */
+    setEnabledTools(toolIds) {
+        if (toolIds === null) {
+            localStorage.removeItem('canvas-chat-enabled-tools');
+        } else {
+            localStorage.setItem('canvas-chat-enabled-tools', JSON.stringify(toolIds));
+        }
+    }
+
     // --- Custom Models (localStorage) ---
 
     /**

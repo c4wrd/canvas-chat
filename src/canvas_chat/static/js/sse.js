@@ -1,6 +1,14 @@
 /**
  * SSE (Server-Sent Events) parsing utilities
  * Shared module for consistent SSE handling across the application
+ *
+ * Event types:
+ * - message: Content chunk from LLM
+ * - thinking: Reasoning/thinking chunk from LLM (extended thinking)
+ * - tool_call: LLM is invoking a tool {id, name, arguments}
+ * - tool_result: Tool execution result {id, name, result}
+ * - done: Stream complete
+ * - error: Error message
  */
 
 /**
