@@ -393,6 +393,7 @@ class ModalManager {
         document.getElementById('groq-key').value = keys.groq || '';
         document.getElementById('github-key').value = keys.github || '';
         document.getElementById('exa-key').value = keys.exa || '';
+        document.getElementById('perplexity-key').value = keys.perplexity || '';
 
         this.updateCopilotStatus();
 

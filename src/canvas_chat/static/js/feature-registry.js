@@ -19,6 +19,7 @@ import { ImageGenerationFeature } from './plugins/image-generation.js';
 import { HighlightFeature } from './plugins/highlight.js';
 import { DeepResearchFeature } from './plugins/deep-research.js';
 import { BranchFeature } from './plugins/branch.js';
+import { PerplexityFeature } from './plugins/perplexity.js';
 
 /**
  * Priority levels for slash command resolution
@@ -211,6 +212,25 @@ class FeatureRegistry {
                     {
                         command: '/branch',
                         handler: 'handleCommand',
+                    },
+                ],
+                priority: PRIORITY.BUILTIN,
+            },
+            {
+                id: 'perplexity',
+                feature: PerplexityFeature,
+                slashCommands: [
+                    {
+                        command: '/perplexity',
+                        handler: 'handlePerplexity',
+                    },
+                    {
+                        command: '/perplexity-pro',
+                        handler: 'handlePerplexityPro',
+                    },
+                    {
+                        command: '/perplexity-search',
+                        handler: 'handlePerplexitySearch',
                     },
                 ],
                 priority: PRIORITY.BUILTIN,

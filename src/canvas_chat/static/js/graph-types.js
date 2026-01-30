@@ -11,7 +11,7 @@
 
 /**
  * Valid node type values
- * @typedef {'human'|'ai'|'note'|'summary'|'reference'|'search'|'research'|'deep_research'|'highlight'|'matrix'|'cell'|'row'|'column'|'fetch_result'|'pdf'|'opinion'|'synthesis'|'review'|'image'|'flashcard'|'factcheck'|'csv'|'code'|'youtube'|'git_repo'} NodeTypeValue
+ * @typedef {'human'|'ai'|'note'|'summary'|'reference'|'search'|'research'|'deep_research'|'highlight'|'matrix'|'cell'|'row'|'column'|'fetch_result'|'pdf'|'opinion'|'synthesis'|'review'|'image'|'flashcard'|'factcheck'|'csv'|'code'|'youtube'|'git_repo'|'perplexity'} NodeTypeValue
  */
 
 /**
@@ -187,6 +187,7 @@ const NodeType = {
     FACTCHECK: 'factcheck', // Fact-checking verdict node
     CSV: 'csv', // Uploaded CSV data for analysis
     CODE: 'code', // Python code for execution
+    PERPLEXITY: 'perplexity', // Perplexity AI web-grounded response
 };
 
 /**
@@ -214,6 +215,7 @@ const DEFAULT_NODE_SIZES = {
     [NodeType.FACTCHECK]: { width: 640, height: 480 },
     [NodeType.CSV]: { width: 640, height: 480 },
     [NodeType.CODE]: { width: 640, height: 400 },
+    [NodeType.PERPLEXITY]: { width: 640, height: 480 },
 
     // Small nodes (420x200) - User input, short content
     [NodeType.HUMAN]: { width: 420, height: 200 },

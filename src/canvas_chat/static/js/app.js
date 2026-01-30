@@ -29,6 +29,7 @@ import './plugins/matrix.js'; // Side-effect import for MatrixNode plugin regist
 import './plugins/note.js'; // Side-effect import for NoteNode plugin registration (NoteFeature imported by feature-registry.js) - consolidated plugin
 import './plugins/opinion-node.js'; // Side-effect import for OpinionNode plugin registration
 import './plugins/pdf-node.js'; // Side-effect import for PdfNode plugin registration
+import './plugins/perplexity-node.js'; // Side-effect import for PerplexityNode plugin registration
 import './plugins/reference.js'; // Side-effect import for ReferenceNode plugin registration
 import './plugins/research-node.js'; // Side-effect import for ResearchNode plugin registration
 import './plugins/deep-research-node.js'; // Side-effect import for DeepResearchNode plugin registration
@@ -5217,6 +5218,7 @@ print("Hello from Pyodide!")
             groq: document.getElementById('groq-key').value.trim(),
             github: document.getElementById('github-key').value.trim(),
             exa: document.getElementById('exa-key').value.trim(),
+            perplexity: document.getElementById('perplexity-key').value.trim(),
         };
 
         storage.saveApiKeys(keys);

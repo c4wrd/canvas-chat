@@ -14,5 +14,7 @@ from canvas_chat.plugins import (
 # Import built-in tool plugins (registers them)
 from canvas_chat.plugins import (
     calculator_tool,  # noqa: F401
+    perplexity_ask_tool,  # noqa: F401
+    perplexity_search_tool,  # noqa: F401
     web_search_tool,  # noqa: F401
 )

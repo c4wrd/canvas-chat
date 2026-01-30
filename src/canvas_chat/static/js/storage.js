@@ -36,6 +36,7 @@
  * @property {string} [groq] - Groq API key
  * @property {string} [github] - GitHub Models API key
  * @property {string} [exa] - Exa search API key
+ * @property {string} [perplexity] - Perplexity API key
  */
 
 /**
@@ -58,7 +59,7 @@
 
 /**
  * Provider name for API key lookup
- * @typedef {'openai'|'anthropic'|'gemini'|'google'|'groq'|'github'|'github_copilot'|'exa'|'ollama'} ProviderName
+ * @typedef {'openai'|'anthropic'|'gemini'|'google'|'groq'|'github'|'github_copilot'|'exa'|'perplexity'|'ollama'} ProviderName
  */
 
 // =============================================================================
@@ -466,6 +467,7 @@ class Storage {
             github: 'github',
             github_copilot: 'github_copilot',
             exa: 'exa',
+            perplexity: 'perplexity',
         };
         return providerMap[provider.toLowerCase()] || provider.toLowerCase();
     }
@@ -586,6 +588,24 @@ class Storage {
      */
     hasExaApiKey() {
         const key = this.getExaApiKey();
+        return key && key.trim().length > 0;
+    }
+
+    /**
+     * Get Perplexity API key
+     * @returns {string|null}
+     */
+    getPerplexityApiKey() {
+        const keys = this.getApiKeys();
+        return keys.perplexity || null;
+    }
+
+    /**
+     * Check if Perplexity API key is configured
+     * @returns {boolean} - True if Perplexity API key is set and non-empty
+     */
+    hasPerplexityApiKey() {
+        const key = this.getPerplexityApiKey();
         return key && key.trim().length > 0;
     }
 
