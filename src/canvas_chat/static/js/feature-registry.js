@@ -18,6 +18,7 @@ import { YouTubeFeature } from './plugins/youtube.js';
 import { ImageGenerationFeature } from './plugins/image-generation.js';
 import { HighlightFeature } from './plugins/highlight.js';
 import { DeepResearchFeature } from './plugins/deep-research.js';
+import { BranchFeature } from './plugins/branch.js';
 
 /**
  * Priority levels for slash command resolution
@@ -199,6 +200,17 @@ class FeatureRegistry {
                     {
                         command: '/deep-research',
                         handler: 'handleDeepResearch',
+                    },
+                ],
+                priority: PRIORITY.BUILTIN,
+            },
+            {
+                id: 'branch',
+                feature: BranchFeature,
+                slashCommands: [
+                    {
+                        command: '/branch',
+                        handler: 'handleCommand',
                     },
                 ],
                 priority: PRIORITY.BUILTIN,

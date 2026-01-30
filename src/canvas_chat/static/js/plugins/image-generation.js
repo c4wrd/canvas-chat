@@ -107,7 +107,7 @@ class ImageGenerationFeature extends FeaturePlugin {
      * Handle the /image command.
      * @param {string} command - The slash command (e.g., '/image')
      * @param {string} args - Text after the command
-     * @param {Object} contextObj - Additional context (e.g., { text: selectedNodesContent })
+     * @param {Object} contextObj - Additional context (e.g., { text: selectedNodesContent, imageSettings: {...} })
      */
     async handleCommand(command, args, contextObj) {
         // 1. Get selected node content as prompt
@@ -128,38 +128,91 @@ class ImageGenerationFeature extends FeaturePlugin {
 
         console.log('[ImageGeneration] Prompt:', prompt);
 
-        // 3. Store prompt and show modal
+        // 3. Store prompt and parent node IDs
+        // Use parentNodeIds from context if provided (e.g., from /branch), otherwise get from selection
         this.currentPrompt = prompt;
-        this.parentNodeIds = this.canvas.getSelectedNodeIds();
+        this.parentNodeIds = contextObj?.parentNodeIds || this.canvas.getSelectedNodeIds();
 
-        // Show settings modal
-        await this.showSettingsModal();
+        // 4. If settings provided in context (e.g., from /branch), use them directly
+        if (contextObj?.imageSettings) {
+            console.log('[ImageGeneration] Using provided settings:', contextObj.imageSettings);
+            console.log('[ImageGeneration] Using parent nodes:', this.parentNodeIds);
+            await this.generateImageWithSettings(
+                this.currentPrompt,
+                this.parentNodeIds,
+                contextObj.imageSettings
+            );
+            return;
+        }
+
+        // 5. Otherwise, show settings modal and wait for user input
+        const settings = await this.showSettingsModal();
+        if (settings) {
+            await this.generateImageWithSettings(this.currentPrompt, this.parentNodeIds, settings);
+        }
+        // If settings is null, user cancelled
     }
 
     /**
      * Show the image generation settings modal.
+     * Returns a Promise that resolves with the selected settings when user clicks Generate,
+     * or resolves with null if user cancels.
+     * @returns {Promise<{model: string, size: string, quality: string}|null>}
      */
     async showSettingsModal() {
-        // Open modal
-        this.modalManager.showPluginModal('image-generation', 'settings');
+        return new Promise((resolve) => {
+            // Open modal
+            this.modalManager.showPluginModal('image-generation', 'settings');
 
-        // Setup event listeners
-        const modelSelect = document.getElementById('image-gen-model');
-        const generateBtn = document.getElementById('image-gen-generate');
-        const cancelBtn = document.getElementById('image-gen-cancel');
+            // Setup event listeners
+            const modelSelect = document.getElementById('image-gen-model');
+            const generateBtn = document.getElementById('image-gen-generate');
+            const cancelBtn = document.getElementById('image-gen-cancel');
+            const closeBtn = document.getElementById('image-gen-close');
 
-        if (modelSelect) {
-            modelSelect.onchange = () => this.updateSizeOptions();
-            this.updateSizeOptions();
-        }
+            if (modelSelect) {
+                modelSelect.onchange = () => this.updateSizeOptions();
+                this.updateSizeOptions();
+            }
 
-        if (generateBtn) {
-            generateBtn.onclick = () => this.generateImage();
-        }
+            // Handler for Generate button - capture settings and resolve
+            const handleGenerate = () => {
+                const settings = {
+                    model: document.getElementById('image-gen-model')?.value || 'gemini/gemini-3-pro-image-preview',
+                    size: document.getElementById('image-gen-size')?.value || '1024x1024',
+                    quality: document.getElementById('image-gen-quality')?.value || 'hd',
+                };
+                cleanup();
+                this.modalManager.hidePluginModal('image-generation', 'settings');
+                resolve(settings);
+            };
 
-        if (cancelBtn) {
-            cancelBtn.onclick = () => this.modalManager.hidePluginModal('image-generation', 'settings');
-        }
+            // Handler for Cancel/Close - resolve with null
+            const handleCancel = () => {
+                cleanup();
+                this.modalManager.hidePluginModal('image-generation', 'settings');
+                resolve(null);
+            };
+
+            // Cleanup function to remove event listeners
+            const cleanup = () => {
+                if (generateBtn) generateBtn.onclick = null;
+                if (cancelBtn) cancelBtn.onclick = null;
+                if (closeBtn) closeBtn.onclick = null;
+            };
+
+            if (generateBtn) {
+                generateBtn.onclick = handleGenerate;
+            }
+
+            if (cancelBtn) {
+                cancelBtn.onclick = handleCancel;
+            }
+
+            if (closeBtn) {
+                closeBtn.onclick = handleCancel;
+            }
+        });
     }
 
     /**
@@ -192,30 +245,28 @@ class ImageGenerationFeature extends FeaturePlugin {
     }
 
     /**
-     * Generate the image with the selected settings.
+     * Generate image with specific settings (bypasses modal).
+     * This is the core generation method used by both modal flow and direct invocation.
+     * @param {string} prompt - Image generation prompt
+     * @param {string[]} parentNodeIds - Parent node IDs for edges
+     * @param {Object} settings - {model, size, quality}
      */
-    async generateImage() {
-        // Get settings from modal
-        const model = document.getElementById('image-gen-model')?.value || 'gemini/gemini-3-pro-image-preview';
-        const size = document.getElementById('image-gen-size')?.value || '1024x1024';
-        const quality = document.getElementById('image-gen-quality')?.value || 'hd';
+    async generateImageWithSettings(prompt, parentNodeIds, settings) {
+        const { model, size, quality } = settings;
 
-        console.log('[ImageGeneration] Generating with:', { model, size, quality });
-
-        // Close modal
-        this.modalManager.hidePluginModal('image-generation', 'settings');
+        console.log('[ImageGeneration] Generating with settings:', { model, size, quality });
 
         // Create loading node
         const loadingNode = createNode(NodeType.IMAGE, '', {
-            position: this.graph.autoPosition(this.parentNodeIds.length > 0 ? this.parentNodeIds : []),
+            position: this.graph.autoPosition(parentNodeIds.length > 0 ? parentNodeIds : []),
             imageData: null,
             mimeType: 'image/png',
         });
 
         this.graph.addNode(loadingNode);
 
-        // Create edges from selected nodes
-        for (const parentId of this.parentNodeIds) {
+        // Create edges from parent nodes
+        for (const parentId of parentNodeIds) {
             const edge = createEdge(parentId, loadingNode.id, EdgeType.REPLY);
             this.graph.addEdge(edge);
         }
@@ -236,7 +287,7 @@ class ImageGenerationFeature extends FeaturePlugin {
         try {
             // Manually build the request body to ensure correct API key is used.
             const requestBody = {
-                prompt: this.currentPrompt,
+                prompt: prompt,
                 model: model,
                 size: size,
                 quality: quality,

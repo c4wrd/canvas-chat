@@ -41,6 +41,9 @@ class AppContext {
             : null;
         this.buildLLMRequest = app.buildLLMRequest.bind(app);
         this.generateNodeSummary = app.generateNodeSummary ? app.generateNodeSummary.bind(app) : null;
+        this.tryHandleSlashCommand = app.tryHandleSlashCommand
+            ? app.tryHandleSlashCommand.bind(app)
+            : null;
 
         // Unified streaming manager (preferred)
         this.streamingManager = app.streamingManager;
@@ -156,6 +159,7 @@ class FeaturePlugin {
         this.updateCollapseButtonForNode = context.updateCollapseButtonForNode;
         this.buildLLMRequest = context.buildLLMRequest;
         this.generateNodeSummary = context.generateNodeSummary;
+        this.tryHandleSlashCommand = context.tryHandleSlashCommand;
 
         // Legacy streaming state management (for backwards compatibility)
         // TODO: Remove after all features migrated to StreamingManager
