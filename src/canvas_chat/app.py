@@ -2964,17 +2964,16 @@ async def exa_get_contents(request: ExaGetContentsRequest):
 # --- Perplexity API Endpoints ---
 
 
-PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions"
-
-
 @app.post("/api/perplexity/chat")
 async def perplexity_chat(request: PerplexityChatRequest):
     """
     Chat with Perplexity for web-grounded Q&A with citations.
 
     Returns an SSE stream with content chunks and citations.
-    Uses Perplexity's chat/completions API with streaming.
+    Uses Perplexity's official Python SDK with streaming.
     """
+    from perplexity import AsyncPerplexity
+
     logger.info(
         f"Perplexity chat request: query='{request.query[:100]}...', "
         f"model={request.model}"
@@ -2982,100 +2981,62 @@ async def perplexity_chat(request: PerplexityChatRequest):
 
     async def generate():
         try:
-            # Build messages
-            messages = []
+            async with AsyncPerplexity(api_key=request.api_key) as client:
+                # Build messages
+                messages = []
 
-            # Add context as system message if provided
-            if request.context:
+                # Add context as system message if provided
+                if request.context:
+                    messages.append({
+                        "role": "system",
+                        "content": f"Use this context to help answer the question:\n\n{request.context}"
+                    })
+
                 messages.append({
-                    "role": "system",
-                    "content": f"Use this context to help answer the question:\n\n{request.context}"
+                    "role": "user",
+                    "content": request.query
                 })
 
-            messages.append({
-                "role": "user",
-                "content": request.query
-            })
+                # Build web_search_options
+                web_search_options = {}
+                if request.search_domain_filter:
+                    web_search_options["search_domain_filter"] = request.search_domain_filter
+                if request.search_recency_filter:
+                    web_search_options["search_recency_filter"] = request.search_recency_filter
 
-            # Build request payload
-            payload = {
-                "model": request.model,
-                "messages": messages,
-                "stream": True,
-            }
+                # Stream response using SDK
+                stream = await client.chat.completions.create(
+                    messages=messages,
+                    model=request.model,
+                    stream=True,
+                    web_search_options=web_search_options if web_search_options else None,
+                )
 
-            # Add optional filters
-            if request.search_domain_filter:
-                payload["search_domain_filter"] = request.search_domain_filter
-            if request.search_recency_filter:
-                payload["search_recency_filter"] = request.search_recency_filter
+                citations = []
 
-            headers = {
-                "Authorization": f"Bearer {request.api_key}",
-                "Content-Type": "application/json",
-            }
-
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                async with client.stream(
-                    "POST",
-                    PERPLEXITY_API_URL,
-                    json=payload,
-                    headers=headers,
-                ) as response:
-                    if response.status_code != 200:
-                        error_text = await response.aread()
-                        logger.error(f"Perplexity API error: {error_text}")
+                async for chunk in stream:
+                    # Extract content delta
+                    if chunk.choices and chunk.choices[0].delta.content:
                         yield {
-                            "event": "error",
-                            "data": f"Perplexity API error: {response.status_code}",
-                        }
-                        return
-
-                    citations = []
-                    full_content = ""
-
-                    async for line in response.aiter_lines():
-                        if not line or not line.startswith("data: "):
-                            continue
-
-                        data_str = line[6:]  # Remove "data: " prefix
-
-                        if data_str == "[DONE]":
-                            break
-
-                        try:
-                            chunk = json.loads(data_str)
-
-                            # Extract content delta
-                            if "choices" in chunk and len(chunk["choices"]) > 0:
-                                delta = chunk["choices"][0].get("delta", {})
-                                content = delta.get("content", "")
-                                if content:
-                                    full_content += content
-                                    yield {
-                                        "event": "content",
-                                        "data": content,
-                                    }
-
-                            # Extract citations (usually in the last chunk)
-                            if "citations" in chunk:
-                                citations = chunk["citations"]
-
-                        except json.JSONDecodeError:
-                            continue
-
-                    # Send citations at the end
-                    if citations:
-                        yield {
-                            "event": "citations",
-                            "data": json.dumps(citations),
+                            "event": "content",
+                            "data": chunk.choices[0].delta.content,
                         }
 
-                    yield {"event": "done", "data": ""}
+                    # Extract citations (may be in chunk or model_extra)
+                    if hasattr(chunk, 'citations') and chunk.citations:
+                        citations = chunk.citations
+                    elif hasattr(chunk, 'model_extra') and chunk.model_extra.get('citations'):
+                        citations = chunk.model_extra['citations']
 
-        except httpx.TimeoutException:
-            logger.error("Perplexity API timeout")
-            yield {"event": "error", "data": "Request timed out"}
+                # Send citations at the end
+                if citations:
+                    yield {
+                        "event": "citations",
+                        "data": json.dumps(citations),
+                    }
+
+                yield {"event": "done", "data": ""}
+
         except Exception as e:
             logger.error(f"Perplexity chat failed: {e}")
             logger.error(traceback.format_exc())
@@ -3090,60 +3051,45 @@ async def perplexity_search(request: PerplexitySearchRequest):
     Search using Perplexity's API.
 
     Returns search results with titles, URLs, and snippets.
-    This uses the chat API with a search-focused prompt to get results.
+    Uses the chat API with a search-focused prompt to get results.
     """
+    from perplexity import AsyncPerplexity
+
     logger.info(
         f"Perplexity search request: query='{request.query}', "
         f"num_results={request.num_results}"
     )
 
     try:
-        # Use chat completion with a search-focused prompt
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    f"You are a search assistant. Find the top {request.num_results} "
-                    "most relevant web pages for the query. For each result, provide:\n"
-                    "1. Title\n2. URL\n3. Brief description (1-2 sentences)\n\n"
-                    "Format your response as a JSON array with objects containing "
-                    "'title', 'url', and 'snippet' fields."
-                )
-            },
-            {
-                "role": "user",
-                "content": f"Search query: {request.query}"
-            }
-        ]
+        async with AsyncPerplexity(api_key=request.api_key) as client:
+            # Use chat completion with a search-focused prompt
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        f"You are a search assistant. Find the top {request.num_results} "
+                        "most relevant web pages for the query. For each result, provide:\n"
+                        "1. Title\n2. URL\n3. Brief description (1-2 sentences)\n\n"
+                        "Format your response as a JSON array with objects containing "
+                        "'title', 'url', and 'snippet' fields."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": f"Search query: {request.query}"
+                }
+            ]
 
-        payload = {
-            "model": "sonar",  # Use fast model for search
-            "messages": messages,
-            "stream": False,
-        }
-
-        headers = {
-            "Authorization": f"Bearer {request.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                PERPLEXITY_API_URL,
-                json=payload,
-                headers=headers,
+            response = await client.chat.completions.create(
+                messages=messages,
+                model="sonar",  # Use fast model for search
             )
 
-            if response.status_code != 200:
-                logger.error(f"Perplexity API error: {response.text}")
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"Perplexity API error: {response.text}"
-                )
-
-            data = response.json()
-            content = data["choices"][0]["message"]["content"]
-            citations = data.get("citations", [])
+            content = response.choices[0].message.content
+            citations = (
+                getattr(response, 'citations', [])
+                or response.model_extra.get('citations', [])
+            )
 
             # Try to parse JSON results from response
             results = []
@@ -3183,8 +3129,6 @@ async def perplexity_search(request: PerplexitySearchRequest):
                 "raw_response": content if not results else None,
             }
 
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Perplexity search failed: {e}")
         logger.error(traceback.format_exc())

@@ -8,14 +8,12 @@ import logging
 import os
 from typing import Any
 
-import httpx
+from perplexity import AsyncPerplexity
 
 from canvas_chat.tool_plugin import ToolPlugin
 from canvas_chat.tool_registry import PRIORITY, ToolRegistry
 
 logger = logging.getLogger(__name__)
-
-PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions"
 
 
 class PerplexityAskTool(ToolPlugin):
@@ -79,39 +77,23 @@ class PerplexityAskTool(ToolPlugin):
         logger.info(f"[PerplexityAskTool] Asking: {question[:100]}...")
 
         try:
-            # Build request payload
-            payload = {
-                "model": "sonar",  # Fast model for tool use
-                "messages": [{"role": "user", "content": question}],
-                "stream": False,
-            }
+            async with AsyncPerplexity(api_key=api_key) as client:
+                # Build web_search_options
+                web_search_options = {}
+                if recency_filter:
+                    web_search_options["search_recency_filter"] = recency_filter
 
-            if recency_filter:
-                payload["search_recency_filter"] = recency_filter
-
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
-
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    PERPLEXITY_API_URL,
-                    json=payload,
-                    headers=headers,
+                response = await client.chat.completions.create(
+                    messages=[{"role": "user", "content": question}],
+                    model="sonar",  # Fast model for tool use
+                    web_search_options=web_search_options if web_search_options else None,
                 )
 
-                if response.status_code != 200:
-                    logger.error(f"[PerplexityAskTool] API error: {response.text}")
-                    return {
-                        "error": f"Perplexity API error: {response.status_code}",
-                        "answer": "",
-                        "citations": [],
-                    }
-
-                data = response.json()
-                answer = data["choices"][0]["message"]["content"]
-                citations = data.get("citations", [])
+                answer = response.choices[0].message.content
+                citations = (
+                    getattr(response, 'citations', [])
+                    or response.model_extra.get('citations', [])
+                )
 
                 # Format citations for display
                 formatted_citations = []
@@ -131,13 +113,6 @@ class PerplexityAskTool(ToolPlugin):
                     "citation_count": len(formatted_citations),
                 }
 
-        except httpx.TimeoutException:
-            logger.error("[PerplexityAskTool] Request timed out")
-            return {
-                "error": "Request timed out",
-                "answer": "",
-                "citations": [],
-            }
         except Exception as e:
             logger.error(f"[PerplexityAskTool] Failed: {e}")
             return {

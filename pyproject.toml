@@ -18,6 +18,7 @@ dependencies = [
     "pillow>=12.1.0,<13",
     "defusedxml",
     "google-genai>=1.0.0",
+    "perplexityai>=0.23.0",
 ]
 
 [project.optional-dependencies]

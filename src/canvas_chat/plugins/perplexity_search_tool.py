@@ -10,14 +10,12 @@ import os
 import re
 from typing import Any
 
-import httpx
+from perplexity import AsyncPerplexity
 
 from canvas_chat.tool_plugin import ToolPlugin
 from canvas_chat.tool_registry import PRIORITY, ToolRegistry
 
 logger = logging.getLogger(__name__)
-
-PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions"
 
 
 class PerplexitySearchTool(ToolPlugin):
@@ -88,49 +86,35 @@ class PerplexitySearchTool(ToolPlugin):
         logger.info(f"[PerplexitySearchTool] Searching for: {query}")
 
         try:
-            # Use chat completion with a search-focused prompt
-            system_prompt = (
-                f"You are a search assistant. Find the top {num_results} "
-                "most relevant web pages for the query. For each result, provide:\n"
-                "1. Title\n2. URL\n3. Brief description (1-2 sentences)\n\n"
-                "Format your response as a JSON array with objects containing "
-                "'title', 'url', and 'snippet' fields. Only output the JSON array, no other text."
-            )
-
-            payload = {
-                "model": "sonar",  # Fast model for search
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Search query: {query}"},
-                ],
-                "stream": False,
-            }
-
-            if domain_filter:
-                payload["search_domain_filter"] = domain_filter
-
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
-
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    PERPLEXITY_API_URL,
-                    json=payload,
-                    headers=headers,
+            async with AsyncPerplexity(api_key=api_key) as client:
+                # Use chat completion with a search-focused prompt
+                system_prompt = (
+                    f"You are a search assistant. Find the top {num_results} "
+                    "most relevant web pages for the query. For each result, provide:\n"
+                    "1. Title\n2. URL\n3. Brief description (1-2 sentences)\n\n"
+                    "Format your response as a JSON array with objects containing "
+                    "'title', 'url', and 'snippet' fields. Only output the JSON array, no other text."
                 )
 
-                if response.status_code != 200:
-                    logger.error(f"[PerplexitySearchTool] API error: {response.text}")
-                    return {
-                        "error": f"Perplexity API error: {response.status_code}",
-                        "results": [],
-                    }
+                # Build web_search_options
+                web_search_options = {}
+                if domain_filter:
+                    web_search_options["search_domain_filter"] = domain_filter
 
-                data = response.json()
-                content = data["choices"][0]["message"]["content"]
-                citations = data.get("citations", [])
+                response = await client.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": f"Search query: {query}"},
+                    ],
+                    model="sonar",  # Fast model for search
+                    web_search_options=web_search_options if web_search_options else None,
+                )
+
+                content = response.choices[0].message.content
+                citations = (
+                    getattr(response, 'citations', [])
+                    or response.model_extra.get('citations', [])
+                )
 
                 # Try to parse JSON results from response
                 results = []
@@ -168,13 +152,6 @@ class PerplexitySearchTool(ToolPlugin):
                     "result_count": len(results),
                 }
 
-        except httpx.TimeoutException:
-            logger.error("[PerplexitySearchTool] Request timed out")
-            return {
-                "error": "Request timed out",
-                "query": query,
-                "results": [],
-            }
         except Exception as e:
             logger.error(f"[PerplexitySearchTool] Search failed: {e}")
             return {
