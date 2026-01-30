@@ -590,6 +590,24 @@ class Storage {
     }
 
     /**
+     * Get Google (Gemini) API key
+     * @returns {string|null}
+     */
+    getGoogleApiKey() {
+        const keys = this.getApiKeys();
+        return keys.google || null;
+    }
+
+    /**
+     * Check if Google API key is configured
+     * @returns {boolean} - True if Google API key is set and non-empty
+     */
+    hasGoogleApiKey() {
+        const key = this.getGoogleApiKey();
+        return key && key.trim().length > 0;
+    }
+
+    /**
      * Get the currently selected model
      * @returns {string}
      */
@@ -699,6 +717,23 @@ class Storage {
      */
     setReasoningEffort(value) {
         localStorage.setItem('canvas-chat-reasoning-effort', value);
+    }
+
+    /**
+     * Get temperature value for LLM requests
+     * @returns {number} - Temperature value between 0 and 2 (default: 0.7)
+     */
+    getTemperature() {
+        const value = localStorage.getItem('canvas-chat-temperature');
+        return value !== null ? parseFloat(value) : 0.7;
+    }
+
+    /**
+     * Set temperature value for LLM requests
+     * @param {number} value - Temperature value between 0 and 2
+     */
+    setTemperature(value) {
+        localStorage.setItem('canvas-chat-temperature', value.toString());
     }
 
     /**

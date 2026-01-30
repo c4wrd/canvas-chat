@@ -48,6 +48,8 @@
     --node-image-border: #f48fb1;
     --node-flashcard: #e8f5e9;
     --node-flashcard-border: #66bb6a;
+    --node-deep-research: #e8f5e9;
+    --node-deep-research-border: #66bb6a;
 
     /* UI colors */
     --edge-color: #495057;
@@ -124,6 +126,8 @@
         --node-image-border: #f06292;
         --node-flashcard: #1a3d27;
         --node-flashcard-border: #43a047;
+        --node-deep-research: #1b3320;
+        --node-deep-research-border: #388e3c;
 
         --edge-color: #9ca3af;
         --edge-color-light: #4b5563;

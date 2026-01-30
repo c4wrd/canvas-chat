@@ -122,6 +122,11 @@
     border-color: var(--node-research-border);
 }
 
+.node.deep_research {
+    background: var(--node-deep-research);
+    border-color: var(--node-deep-research-border);
+}
+
 .node.highlight {
     background: var(--node-highlight);
     border-color: var(--node-highlight-border);

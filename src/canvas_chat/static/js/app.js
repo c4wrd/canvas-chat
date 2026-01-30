@@ -31,6 +31,7 @@ import './plugins/opinion-node.js'; // Side-effect import for OpinionNode plugin
 import './plugins/pdf-node.js'; // Side-effect import for PdfNode plugin registration
 import './plugins/reference.js'; // Side-effect import for ReferenceNode plugin registration
 import './plugins/research-node.js'; // Side-effect import for ResearchNode plugin registration
+import './plugins/deep-research-node.js'; // Side-effect import for DeepResearchNode plugin registration
 import './plugins/review-node.js'; // Side-effect import for ReviewNode plugin registration
 import './plugins/row-node.js'; // Side-effect import for RowNode plugin registration
 import './plugins/search-node.js'; // Side-effect import for SearchNode plugin registration
@@ -117,6 +118,11 @@ class App {
         this.sendBtn = document.getElementById('send-btn');
         this.modelPicker = document.getElementById('model-picker');
         this.reasoningPicker = document.getElementById('reasoning-picker');
+        this.temperatureToggleBtn = document.getElementById('temperature-toggle-btn');
+        this.temperatureMenu = document.getElementById('temperature-menu');
+        this.temperatureSlider = document.getElementById('temperature-slider');
+        this.temperatureValue = document.getElementById('temperature-value');
+        this.temperatureToggleValue = document.getElementById('temperature-toggle-value');
         this.toolsToggleBtn = document.getElementById('tools-toggle-btn');
         this.toolsMenu = document.getElementById('tools-menu');
         this.toolsEnabledCheckbox = document.getElementById('tools-enabled-checkbox');
@@ -192,6 +198,9 @@ class App {
 
         // Initialize reasoning picker
         this.initReasoningPicker();
+
+        // Initialize temperature slider
+        this.initTemperatureSlider();
 
         // Initialize tools menu
         this.initToolsMenu();
@@ -314,6 +323,46 @@ class App {
         } else {
             this.reasoningPicker.classList.remove('active');
         }
+    }
+
+    /**
+     * Initialize the temperature slider
+     * Loads saved value from storage and sets up change listener
+     */
+    initTemperatureSlider() {
+        if (!this.temperatureSlider || !this.temperatureValue || !this.temperatureToggleBtn || !this.temperatureMenu) {
+            return;
+        }
+
+        // Load saved value
+        const savedValue = storage.getTemperature();
+        this.temperatureSlider.value = savedValue;
+        this.temperatureValue.textContent = savedValue.toFixed(1);
+        this.temperatureToggleValue.textContent = savedValue.toFixed(1);
+
+        // Toggle menu on button click
+        this.temperatureToggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isVisible = this.temperatureMenu.style.display === 'block';
+            this.temperatureMenu.style.display = isVisible ? 'none' : 'block';
+            this.temperatureToggleBtn.classList.toggle('active', !isVisible);
+        });
+
+        // Listen for slider changes
+        this.temperatureSlider.addEventListener('input', () => {
+            const value = parseFloat(this.temperatureSlider.value);
+            this.temperatureValue.textContent = value.toFixed(1);
+            this.temperatureToggleValue.textContent = value.toFixed(1);
+            storage.setTemperature(value);
+        });
+
+        // Close menu when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!this.temperatureToggleBtn.contains(e.target) && !this.temperatureMenu.contains(e.target)) {
+                this.temperatureMenu.style.display = 'none';
+                this.temperatureToggleBtn.classList.remove('active');
+            }
+        });
     }
 
     /**
@@ -1454,11 +1503,13 @@ class App {
         const reasoningEffort = storage.getReasoningEffort();
         const toolsEnabled = storage.getToolsEnabled();
         const enabledTools = storage.getEnabledTools();
+        const temperature = storage.getTemperature();
 
         // In admin mode, backend handles credentials
         if (this.adminMode) {
             const request = {
                 model: model,
+                temperature: temperature,
                 ...additionalParams,
             };
             // Add reasoning_effort if enabled
@@ -1483,6 +1534,7 @@ class App {
             model: model,
             api_key: apiKey,
             base_url: baseUrl,
+            temperature: temperature,
             ...additionalParams,
         };
 
@@ -3672,7 +3724,6 @@ print("Hello from Pyodide!")
         try {
             const requestBody = this.buildLLMRequest({
                 messages,
-                temperature: 0.7,
             });
 
             const response = await fetch(apiUrl('/api/chat'), {

@@ -145,6 +145,139 @@
     color: var(--accent);
 }
 
+/* Temperature Toggle */
+.temperature-toggle-container {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.temperature-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border: 2px solid var(--bg-secondary);
+    border-radius: var(--radius-md);
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.temperature-toggle-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.temperature-toggle-btn.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--bg-secondary);
+}
+
+.temperature-toggle-value {
+    font-family: monospace;
+    font-size: 12px;
+    min-width: 26px;
+    text-align: center;
+}
+
+.temperature-menu {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    margin-bottom: 8px;
+    background: var(--bg-primary);
+    border: 2px solid var(--bg-secondary);
+    border-radius: var(--radius-lg);
+    padding: 12px;
+    min-width: 220px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+}
+
+.temperature-menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--bg-secondary);
+}
+
+.temperature-menu-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.temperature-control {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.temperature-slider {
+    flex: 1;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--bg-secondary);
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+}
+
+.temperature-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    transition: transform 0.15s;
+}
+
+.temperature-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+}
+
+.temperature-slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border: none;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    transition: transform 0.15s;
+}
+
+.temperature-slider::-moz-range-thumb:hover {
+    transform: scale(1.2);
+}
+
+.temperature-value {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-family: monospace;
+    min-width: 26px;
+    text-align: center;
+}
+
+.temperature-description {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4px;
+}
+
+.temperature-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
 /* Tools Toggle */
 .tools-toggle-container {
     position: relative;

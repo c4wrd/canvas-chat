@@ -388,6 +388,33 @@ class DDGResearchSource(BaseModel):
     query: str
 
 
+# --- Google Deep Research Models ---
+
+
+class DeepResearchStartRequest(BaseModel):
+    """Request body for starting a Google Deep Research task."""
+
+    query: str  # Research query/instructions
+    context: str | None = None  # Optional context from selected nodes
+    images: list[str] | None = None  # Optional base64-encoded images for multimodal context
+    api_key: str  # Google/Gemini API key
+
+
+class DeepResearchStartResponse(BaseModel):
+    """Response from starting a deep research task."""
+
+    interaction_id: str  # Unique ID to track this research task
+    status: str  # "started"
+
+
+class DeepResearchStatusResponse(BaseModel):
+    """Response from checking deep research status."""
+
+    interaction_id: str
+    status: str  # "in_progress", "completed", "failed", "not_found"
+    error: str | None = None
+
+
 class ProviderModelsRequest(BaseModel):
     """Request body for fetching models from a provider."""
 
@@ -1955,7 +1982,22 @@ async def generate_image(request: ImageGenerationRequest):
             api_base=request.base_url,
         )
 
+        # Log the response for debugging
+        logger.debug(f"Image generation response type: {type(response)}")
+        logger.debug(f"Image generation response: {response}")
+        if hasattr(response, "data"):
+            logger.debug(f"Response data length: {len(response.data)}")
+            logger.debug(f"Response data: {response.data}")
+        else:
+            logger.warning(f"Response has no 'data' attribute. Attributes: {dir(response)}")
+
         # Get the generated image
+        if not hasattr(response, "data") or not response.data:
+            logger.error(f"Empty or missing data in response: {response}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"No image data returned from provider. Response: {response}",
+            )
         image_data = response.data[0]
 
         # Handle URL or base64 response
@@ -2878,6 +2920,580 @@ async def exa_get_contents(request: ExaGetContentsRequest):
         raise
     except Exception as e:
         logger.error(f"Exa get-contents failed: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# --- Google Deep Research Endpoints ---
+
+# In-memory storage for active research tasks
+# In production, this could be Redis or a database
+_deep_research_tasks: dict[str, dict] = {}
+
+# Deep Research agent model
+DEEP_RESEARCH_AGENT = "deep-research-pro-preview-12-2025"
+
+
+@app.post("/api/deep-research/start")
+async def deep_research_start(request: DeepResearchStartRequest):
+    """
+    Initialize a Google Deep Research task.
+
+    This endpoint just stores task parameters and returns a local task ID.
+    The actual Google API call happens in /stream to enable proper streaming.
+
+    Returns a task_id that can be used to:
+    - Stream progress/results via /api/deep-research/stream/{id}
+    - Check status via /api/deep-research/status/{id}
+    """
+    logger.info(f"Deep research start: query='{request.query[:100]}...'")
+
+    # Generate local task ID
+    task_id = str(uuid4())
+
+    # Build the research prompt with context
+    research_input = request.query
+    if request.context:
+        research_input = f"Context:\n{request.context}\n\nResearch query: {request.query}"
+
+    # Store task info - actual Google API call happens in /stream
+    _deep_research_tasks[task_id] = {
+        "status": "pending",
+        "query": request.query,
+        "context": request.context,
+        "images": request.images,
+        "api_key": request.api_key,
+        "prompt": research_input,
+        "google_interaction_id": None,  # Set when streaming starts
+        "last_event_id": None,  # For resume support
+        "result": None,
+        "error": None,
+        "thinking_history": [],
+        "sources": [],
+        "started_at": time.time(),
+    }
+
+    logger.info(f"Deep research task created: {task_id}")
+
+    return DeepResearchStartResponse(
+        interaction_id=task_id,
+        status="pending",
+    )
+
+
+@app.get("/api/deep-research/status/{task_id}")
+async def deep_research_status(task_id: str):
+    """
+    Check the status of a deep research task.
+
+    Used for:
+    - Detecting resumable research after browser close
+    - Quick status checks without establishing SSE connection
+    """
+    from google import genai
+
+    task = _deep_research_tasks.get(task_id)
+
+    if not task:
+        return DeepResearchStatusResponse(
+            interaction_id=task_id,
+            status="not_found",
+            error="Research task not found",
+        )
+
+    # If we have a Google interaction ID, check its status
+    google_id = task.get("google_interaction_id")
+    if google_id and task["status"] == "in_progress":
+        try:
+            client = genai.Client(api_key=task["api_key"])
+            interaction = client.interactions.get(google_id)
+
+            # Map Google status to our status
+            if interaction.status == "completed":
+                task["status"] = "completed"
+            elif interaction.status == "failed":
+                task["status"] = "failed"
+                task["error"] = getattr(interaction, "error", "Unknown error")
+
+        except Exception as e:
+            logger.warning(f"Failed to get interaction status from Google: {e}")
+
+    return DeepResearchStatusResponse(
+        interaction_id=task_id,
+        status=task["status"],
+        error=task.get("error"),
+    )
+
+
+@app.get("/api/deep-research/stream/{task_id}")
+async def deep_research_stream(task_id: str):
+    """
+    Stream deep research progress and results via SSE.
+
+    This endpoint initiates the Google Deep Research API call with streaming
+    enabled, then proxies the events to the client.
+
+    Event types:
+    - status: Progress messages ("Starting research...", "Analyzing sources...")
+    - thinking: Agent thinking/reasoning summaries
+    - content: Final report markdown chunks
+    - sources: Citations JSON array
+    - done: Research complete
+    - error: Research failed
+    """
+    from google import genai
+
+    task = _deep_research_tasks.get(task_id)
+
+    if not task:
+        async def error_generator():
+            yield {"event": "error", "data": "Research task not found"}
+        return EventSourceResponse(error_generator())
+
+    async def generate():
+        try:
+            yield {"event": "status", "data": "Initializing deep research..."}
+
+            # Create client
+            client = genai.Client(api_key=task["api_key"])
+
+            full_content = ""
+
+            # Check if we're resuming an existing interaction
+            google_id = task.get("google_interaction_id")
+            last_event_id = task.get("last_event_id")
+
+            if google_id and last_event_id:
+                # Resume existing interaction
+                yield {"event": "status", "data": "Resuming research..."}
+                stream = client.interactions.get(
+                    google_id,
+                    stream=True,
+                    last_event_id=last_event_id
+                )
+            elif google_id:
+                # Reconnect to existing interaction without last_event_id
+                yield {"event": "status", "data": "Reconnecting to research..."}
+                stream = client.interactions.get(
+                    google_id,
+                    stream=True
+                )
+            else:
+                # Start new research with streaming enabled
+                yield {"event": "status", "data": "Starting deep research agent..."}
+                task["status"] = "in_progress"
+
+                stream = client.interactions.create(
+                    input=task["prompt"],
+                    agent=DEEP_RESEARCH_AGENT,
+                    background=True,
+                    stream=True,
+                    agent_config={
+                        "type": "deep-research",
+                        "thinking_summaries": "auto"
+                    }
+                )
+
+            # Process streaming events
+            # Use run_in_executor to avoid blocking the async event loop
+            import asyncio
+
+            loop = asyncio.get_event_loop()
+            stream_iter = iter(stream)
+            event_count = 0
+            last_status_time = time.time()
+
+            while True:
+                try:
+                    # Run the synchronous next() in a thread pool to not block
+                    chunk = await loop.run_in_executor(
+                        None,
+                        lambda: next(stream_iter, None)
+                    )
+
+                    if chunk is None:
+                        logger.info("Stream ended (no more chunks)")
+                        break
+
+                    event_count += 1
+
+                    # Track event ID for resume support
+                    if hasattr(chunk, "event_id") and chunk.event_id:
+                        task["last_event_id"] = chunk.event_id
+
+                    event_type = getattr(chunk, "event_type", None)
+                    logger.info(f"Deep research event #{event_count}: {event_type}")
+
+                    # Send periodic status updates to keep connection alive
+                    current_time = time.time()
+                    if current_time - last_status_time > 30:
+                        yield {"event": "status", "data": "Research in progress..."}
+                        last_status_time = current_time
+
+                    if event_type == "interaction.start":
+                        # Capture the Google interaction ID for resume
+                        if hasattr(chunk, "interaction") and hasattr(chunk.interaction, "id"):
+                            task["google_interaction_id"] = chunk.interaction.id
+                            logger.info(f"Google interaction started: {chunk.interaction.id}")
+                            # Send to frontend for localStorage storage (browser resume)
+                            yield {"event": "interaction_id", "data": chunk.interaction.id}
+                        yield {"event": "status", "data": "Research in progress..."}
+
+                    elif event_type == "content.delta":
+                        # Content chunk - check delta type
+                        if hasattr(chunk, "delta"):
+                            delta = chunk.delta
+                            delta_type = getattr(delta, "type", None)
+
+                            if delta_type == "text" and hasattr(delta, "text"):
+                                text = delta.text
+                                if text:
+                                    full_content += text
+                                    yield {"event": "content", "data": text}
+
+                            elif delta_type == "thought_summary":
+                                # Thinking summary
+                                thinking_text = None
+                                if hasattr(delta, "content") and hasattr(delta.content, "text"):
+                                    thinking_text = delta.content.text
+                                elif hasattr(delta, "text"):
+                                    thinking_text = delta.text
+
+                                if thinking_text:
+                                    task["thinking_history"].append({
+                                        "timestamp": time.time(),
+                                        "summary": thinking_text[:500],
+                                    })
+                                    yield {"event": "thinking", "data": thinking_text[:500]}
+
+                            elif delta_type is None and hasattr(delta, "text"):
+                                # Fallback: delta with text but no type
+                                text = delta.text
+                                if text:
+                                    full_content += text
+                                    yield {"event": "content", "data": text}
+
+                            else:
+                                # Log unknown delta types for debugging
+                                logger.warning(f"Unknown delta type: {delta_type}")
+
+                    elif event_type == "interaction.complete":
+                        logger.info("Deep research completed via interaction.complete event")
+                        break
+
+                    elif event_type == "interaction.done":
+                        # Alternative completion event
+                        logger.info("Deep research completed via interaction.done event")
+                        break
+
+                    elif event_type == "error" or event_type == "interaction.failed":
+                        error_msg = "Research failed"
+                        if hasattr(chunk, "error"):
+                            error_msg = str(chunk.error)
+                        raise Exception(error_msg)
+
+                    elif event_type is not None:
+                        # Log unhandled event types for debugging
+                        logger.info(f"Unhandled event type: {event_type}")
+
+                except StopIteration:
+                    logger.info("Stream ended (StopIteration)")
+                    break
+                except Exception as stream_err:
+                    error_str = str(stream_err)
+                    # Check if it's a timeout - research may still be running
+                    if "timeout" in error_str.lower() or "deadline" in error_str.lower():
+                        logger.warning(f"Stream timeout, will check for completion: {stream_err}")
+                        yield {"event": "status", "data": "Connection timed out, checking research status..."}
+                        break
+                    else:
+                        raise
+
+            logger.info(f"Stream processing complete. Total events: {event_count}, content length: {len(full_content)}")
+
+            # Fetch final results - poll if research is still in progress
+            google_id = task.get("google_interaction_id")
+            if google_id:
+                max_poll_attempts = 30  # Poll for up to 5 more minutes (10s intervals)
+                poll_attempt = 0
+
+                while poll_attempt < max_poll_attempts:
+                    try:
+                        interaction = await loop.run_in_executor(
+                            None,
+                            lambda: client.interactions.get(google_id)
+                        )
+
+                        status = getattr(interaction, "status", None)
+                        logger.info(f"Interaction status: {status} (poll attempt {poll_attempt})")
+
+                        if status == "completed":
+                            # Get final output if we missed content during streaming
+                            if interaction.outputs:
+                                final_output = interaction.outputs[-1]
+                                if hasattr(final_output, "text") and final_output.text:
+                                    # Only send if we don't already have this content
+                                    new_content = final_output.text
+                                    if not full_content or len(new_content) > len(full_content):
+                                        if full_content:
+                                            # Send only the new portion
+                                            additional = new_content[len(full_content):]
+                                            if additional:
+                                                yield {"event": "content", "data": additional}
+                                        else:
+                                            yield {"event": "content", "data": new_content}
+                                        full_content = new_content
+
+                            # Extract sources if available
+                            if hasattr(interaction, "sources") and interaction.sources:
+                                sources = []
+                                for s in interaction.sources:
+                                    source = {}
+                                    if hasattr(s, "title"):
+                                        source["title"] = s.title
+                                    if hasattr(s, "url"):
+                                        source["url"] = s.url
+                                    if hasattr(s, "uri"):
+                                        source["url"] = s.uri
+                                    if source.get("url"):
+                                        sources.append(source)
+
+                                if sources:
+                                    task["sources"] = sources
+                                    yield {"event": "sources", "data": json.dumps(sources)}
+
+                            break  # Done!
+
+                        elif status == "failed":
+                            error_msg = getattr(interaction, "error", "Research failed")
+                            raise Exception(f"Research failed: {error_msg}")
+
+                        elif status in ("in_progress", "running", "pending"):
+                            # Still running, wait and poll again
+                            poll_attempt += 1
+                            if poll_attempt < max_poll_attempts:
+                                yield {"event": "status", "data": f"Research still in progress... (checking {poll_attempt}/{max_poll_attempts})"}
+                                await asyncio.sleep(10)
+                            else:
+                                # Max polls reached, let user know they can reconnect
+                                yield {"event": "status", "data": "Research is taking longer than expected. You can refresh to check again later."}
+                                break
+                        else:
+                            # Unknown status
+                            logger.warning(f"Unknown interaction status: {status}")
+                            break
+
+                    except Exception as e:
+                        if "timeout" in str(e).lower() or "deadline" in str(e).lower():
+                            logger.warning(f"Timeout while polling, will retry: {e}")
+                            poll_attempt += 1
+                            if poll_attempt < max_poll_attempts:
+                                await asyncio.sleep(10)
+                                continue
+                        logger.warning(f"Failed to fetch final results: {e}")
+                        break
+
+            # Store final result
+            task["result"] = full_content
+            task["status"] = "completed"
+            task["completed_at"] = time.time()
+
+            yield {"event": "done", "data": ""}
+
+        except Exception as e:
+            logger.error(f"Deep research stream failed: {e}")
+            logger.error(traceback.format_exc())
+            task["status"] = "failed"
+            task["error"] = str(e)
+            yield {"event": "error", "data": str(e)}
+
+    return EventSourceResponse(generate())
+
+
+@app.get("/api/deep-research/resume/{google_interaction_id}")
+async def deep_research_resume(google_interaction_id: str, api_key: str):
+    """
+    Resume streaming a Google Deep Research interaction by its Google ID.
+
+    This is used after browser refresh when the backend task state is lost
+    but we still have the Google interaction ID stored in the frontend.
+    """
+    from google import genai
+
+    logger.info(f"Deep research resume: google_id={google_interaction_id}")
+
+    async def generate():
+        try:
+            yield {"event": "status", "data": "Reconnecting to research..."}
+
+            client = genai.Client(api_key=api_key)
+
+            # Try to get the interaction with streaming to resume
+            try:
+                stream = client.interactions.get(
+                    google_interaction_id,
+                    stream=True
+                )
+            except Exception as e:
+                # If streaming fails, try to get final result
+                logger.warning(f"Streaming resume failed, fetching final result: {e}")
+                interaction = client.interactions.get(google_interaction_id)
+
+                if interaction.status == "completed":
+                    # Send final output
+                    if interaction.outputs:
+                        final_output = interaction.outputs[-1]
+                        if hasattr(final_output, "text") and final_output.text:
+                            yield {"event": "content", "data": final_output.text}
+
+                    # Send sources
+                    if hasattr(interaction, "sources") and interaction.sources:
+                        sources = []
+                        for s in interaction.sources:
+                            source = {}
+                            if hasattr(s, "title"):
+                                source["title"] = s.title
+                            if hasattr(s, "url"):
+                                source["url"] = s.url
+                            elif hasattr(s, "uri"):
+                                source["url"] = s.uri
+                            if source.get("url"):
+                                sources.append(source)
+                        if sources:
+                            yield {"event": "sources", "data": json.dumps(sources)}
+
+                    yield {"event": "done", "data": ""}
+                    return
+
+                elif interaction.status == "failed":
+                    error_msg = getattr(interaction, "error", "Research failed")
+                    yield {"event": "error", "data": str(error_msg)}
+                    return
+
+                else:
+                    yield {"event": "error", "data": "Unable to resume - research may still be initializing"}
+                    return
+
+            full_content = ""
+
+            # Process streaming events
+            for chunk in stream:
+                event_type = getattr(chunk, "event_type", None)
+
+                if event_type == "content.delta":
+                    if hasattr(chunk, "delta"):
+                        delta = chunk.delta
+                        delta_type = getattr(delta, "type", "text")
+
+                        if delta_type == "text" and hasattr(delta, "text"):
+                            text = delta.text
+                            if text:
+                                full_content += text
+                                yield {"event": "content", "data": text}
+
+                        elif delta_type == "thought_summary":
+                            if hasattr(delta, "content") and hasattr(delta.content, "text"):
+                                thinking_text = delta.content.text
+                                if thinking_text:
+                                    yield {"event": "thinking", "data": thinking_text[:500]}
+
+                elif event_type == "interaction.complete":
+                    break
+
+                elif event_type == "error" or event_type == "interaction.failed":
+                    error_msg = "Research failed"
+                    if hasattr(chunk, "error"):
+                        error_msg = str(chunk.error)
+                    raise Exception(error_msg)
+
+            # Fetch final results
+            try:
+                interaction = client.interactions.get(google_interaction_id)
+
+                if not full_content and interaction.outputs:
+                    final_output = interaction.outputs[-1]
+                    if hasattr(final_output, "text") and final_output.text:
+                        full_content = final_output.text
+                        yield {"event": "content", "data": full_content}
+
+                if hasattr(interaction, "sources") and interaction.sources:
+                    sources = []
+                    for s in interaction.sources:
+                        source = {}
+                        if hasattr(s, "title"):
+                            source["title"] = s.title
+                        if hasattr(s, "url"):
+                            source["url"] = s.url
+                        elif hasattr(s, "uri"):
+                            source["url"] = s.uri
+                        if source.get("url"):
+                            sources.append(source)
+                    if sources:
+                        yield {"event": "sources", "data": json.dumps(sources)}
+
+            except Exception as e:
+                logger.warning(f"Failed to fetch final results: {e}")
+
+            yield {"event": "done", "data": ""}
+
+        except Exception as e:
+            logger.error(f"Deep research resume failed: {e}")
+            logger.error(traceback.format_exc())
+            yield {"event": "error", "data": str(e)}
+
+    return EventSourceResponse(generate())
+
+
+@app.get("/api/deep-research/finalize/{google_interaction_id}")
+async def deep_research_finalize(google_interaction_id: str, api_key: str):
+    """
+    Fetch final results for a completed Google Deep Research interaction.
+
+    Used when we just need to check if research completed and get results
+    without streaming.
+    """
+    from google import genai
+
+    logger.info(f"Deep research finalize: google_id={google_interaction_id}")
+
+    try:
+        client = genai.Client(api_key=api_key)
+        interaction = client.interactions.get(google_interaction_id)
+
+        result = {
+            "status": interaction.status,
+            "content": None,
+            "sources": [],
+            "error": None,
+        }
+
+        if interaction.status == "completed":
+            # Get final output
+            if interaction.outputs:
+                final_output = interaction.outputs[-1]
+                if hasattr(final_output, "text"):
+                    result["content"] = final_output.text
+
+            # Get sources
+            if hasattr(interaction, "sources") and interaction.sources:
+                for s in interaction.sources:
+                    source = {}
+                    if hasattr(s, "title"):
+                        source["title"] = s.title
+                    if hasattr(s, "url"):
+                        source["url"] = s.url
+                    elif hasattr(s, "uri"):
+                        source["url"] = s.uri
+                    if source.get("url"):
+                        result["sources"].append(source)
+
+        elif interaction.status == "failed":
+            result["error"] = getattr(interaction, "error", "Unknown error")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Deep research finalize failed: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e)) from e
 

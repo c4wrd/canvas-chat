@@ -11,7 +11,7 @@
 
 /**
  * Valid node type values
- * @typedef {'human'|'ai'|'note'|'summary'|'reference'|'search'|'research'|'highlight'|'matrix'|'cell'|'row'|'column'|'fetch_result'|'pdf'|'opinion'|'synthesis'|'review'|'image'|'flashcard'|'factcheck'|'csv'|'code'|'youtube'|'git_repo'} NodeTypeValue
+ * @typedef {'human'|'ai'|'note'|'summary'|'reference'|'search'|'research'|'deep_research'|'highlight'|'matrix'|'cell'|'row'|'column'|'fetch_result'|'pdf'|'opinion'|'synthesis'|'review'|'image'|'flashcard'|'factcheck'|'csv'|'code'|'youtube'|'git_repo'} NodeTypeValue
  */
 
 /**
@@ -169,6 +169,7 @@ const NodeType = {
     REFERENCE: 'reference',
     SEARCH: 'search', // Web search query node
     RESEARCH: 'research', // Exa deep research node
+    DEEP_RESEARCH: 'deep_research', // Google Deep Research agent node
     HIGHLIGHT: 'highlight', // Excerpted text or image from another node
     MATRIX: 'matrix', // Cross-product evaluation table
     CELL: 'cell', // Pinned cell from a matrix
@@ -200,6 +201,7 @@ const DEFAULT_NODE_SIZES = {
     [NodeType.AI]: { width: 640, height: 480 },
     [NodeType.SUMMARY]: { width: 640, height: 480 },
     [NodeType.RESEARCH]: { width: 640, height: 480 },
+    [NodeType.DEEP_RESEARCH]: { width: 700, height: 600 }, // Larger for deep research reports
     [NodeType.FETCH_RESULT]: { width: 640, height: 480 },
     [NodeType.PDF]: { width: 640, height: 480 },
     [NodeType.YOUTUBE]: { width: 640, height: 480 },

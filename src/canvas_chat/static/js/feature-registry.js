@@ -17,6 +17,7 @@ import { UrlFetchFeature } from './plugins/url-fetch.js';
 import { YouTubeFeature } from './plugins/youtube.js';
 import { ImageGenerationFeature } from './plugins/image-generation.js';
 import { HighlightFeature } from './plugins/highlight.js';
+import { DeepResearchFeature } from './plugins/deep-research.js';
 
 /**
  * Priority levels for slash command resolution
@@ -189,6 +190,17 @@ class FeatureRegistry {
                 id: 'highlight',
                 feature: HighlightFeature,
                 slashCommands: [], // Event-driven, no slash commands
+                priority: PRIORITY.BUILTIN,
+            },
+            {
+                id: 'deep-research',
+                feature: DeepResearchFeature,
+                slashCommands: [
+                    {
+                        command: '/deep-research',
+                        handler: 'handleDeepResearch',
+                    },
+                ],
                 priority: PRIORITY.BUILTIN,
             },
         ];
