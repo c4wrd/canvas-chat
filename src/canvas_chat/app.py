@@ -3291,8 +3291,13 @@ async def perplexity_responses(request: PerplexityResponsesRequest):
                                     event_type = line[6:].strip()
                                 elif line.startswith("data:"):
                                     event_data = line[5:].strip()
+                            logger.debug("SSE event: type=%s, data=%s", event_type, event_data)
+
+                            if event_type == 'error':
+                                yield {"event": "error", "data": event_data} 
 
                             if not event_data or event_data == "[DONE]":
+                                logger.debug("Skipping empty or DONE event")
                                 continue
 
                             try:
