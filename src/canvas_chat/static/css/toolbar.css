@@ -348,6 +348,27 @@
     transform: translateX(-50%) translateY(0);
 }
 
+/* Toast notification types */
+.toast-notification.toast-error {
+    background: #c92a2a;
+    color: #fff;
+}
+
+.toast-notification.toast-success {
+    background: #2b8a3e;
+    color: #fff;
+}
+
+.toast-notification.toast-info {
+    background: #1971c2;
+    color: #fff;
+}
+
+.toast-notification.toast-warning {
+    background: #e67700;
+    color: #fff;
+}
+
 /* Node locked by another user (multiplayer) */
 .node-wrapper.node-locked-by-other .node {
     opacity: 0.7;

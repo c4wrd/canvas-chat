@@ -68,18 +68,123 @@ class PerplexityNode extends BaseNode {
 
         // Status indicator for in-progress responses
         if (this.node.status === 'in_progress' || this.node.status === 'starting') {
+            const stepInfo = this.node.currentStep
+                ? `Step ${this.node.currentStep} of ${this.node.config?.max_steps || '?'} - `
+                : '';
             html += `
                 <div class="perplexity-status">
                     <div class="perplexity-spinner"></div>
-                    <span>Searching and analyzing...</span>
+                    <span>${stepInfo}Searching and analyzing...</span>
                 </div>
             `;
         }
 
         // Model badge
         if (this.node.model) {
-            const modelName = this.node.model === 'sonar-pro' ? 'Sonar Pro' : 'Sonar';
+            let modelName = 'Perplexity';
+            if (this.node.model === 'sonar-pro') modelName = 'Sonar Pro';
+            else if (this.node.model === 'sonar') modelName = 'Sonar';
+            else if (this.node.config?.preset === 'fast-search') modelName = 'Fast Search';
+            else if (this.node.config?.preset === 'pro-search') modelName = 'Pro Search';
+            else if (this.node.config?.preset === 'deep-research') modelName = 'Deep Research';
+            else if (this.node.model.includes('/')) {
+                // Extract model name from format like "anthropic/claude-opus-4-5"
+                const parts = this.node.model.split('/');
+                modelName = parts[parts.length - 1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            }
             html += `<div class="perplexity-model-badge">${modelName}</div>`;
+        }
+
+        // Progress indicator for multi-step research
+        if (this.node.steps && this.node.steps.length > 0 && this.node.config?.max_steps > 1) {
+            const completedSteps = this.node.steps.filter(s => s.status === 'completed').length;
+            const totalSteps = this.node.config.max_steps;
+            const percentage = (completedSteps / totalSteps) * 100;
+
+            html += `
+                <div class="perplexity-progress">
+                    <div class="perplexity-progress-bar">
+                        <div class="perplexity-progress-fill" style="width: ${percentage}%"></div>
+                    </div>
+                    <div class="perplexity-progress-label">
+                        ${completedSteps} of ${totalSteps} steps completed
+                    </div>
+                </div>
+            `;
+        }
+
+        // Reasoning section (collapsible)
+        if (this.node.reasoning && this.node.reasoning.length > 0) {
+            html += `
+                <details class="perplexity-reasoning-section">
+                    <summary class="perplexity-reasoning-header">
+                        <span class="reasoning-icon">🧠</span>
+                        <span>Reasoning & Thinking</span>
+                    </summary>
+                    <div class="perplexity-reasoning-content">
+            `;
+            this.node.reasoning.forEach((thinking, index) => {
+                html += `
+                    <div class="perplexity-reasoning-item">
+                        ${canvas.escapeHtml(thinking)}
+                    </div>
+                `;
+            });
+            html += `
+                    </div>
+                </details>
+            `;
+        }
+
+        // Research steps (collapsible)
+        if (this.node.steps && this.node.steps.length > 0 && this.node.config?.max_steps > 1) {
+            html += `
+                <details class="perplexity-steps-section">
+                    <summary class="perplexity-steps-header">
+                        <span class="steps-icon">📋</span>
+                        <span>Research Steps (${this.node.steps.length})</span>
+                    </summary>
+                    <div class="perplexity-steps-content">
+            `;
+            this.node.steps.forEach((step, index) => {
+                const statusIcon = step.status === 'completed' ? '✅' : '⏳';
+                html += `
+                    <div class="perplexity-step-item ${step.status}">
+                        <div class="perplexity-step-header">
+                            <span class="step-icon">${statusIcon}</span>
+                            <span class="step-title">Step ${step.step}</span>
+                        </div>
+                        ${step.thinking ? `
+                            <div class="perplexity-step-thinking">
+                                <strong>Thinking:</strong> ${canvas.escapeHtml(step.thinking)}
+                            </div>
+                        ` : ''}
+                        ${step.content ? `
+                            <div class="perplexity-step-content">
+                                ${canvas.renderMarkdown(step.content)}
+                            </div>
+                        ` : ''}
+                        ${step.sources && step.sources.length > 0 ? `
+                            <div class="perplexity-step-sources">
+                                <strong>Sources:</strong>
+                                <ul>
+                                    ${step.sources.map((source, i) => {
+                                        const url = typeof source === 'string' ? source : source.url;
+                                        const title = typeof source === 'string'
+                                            ? this.extractDomain(source)
+                                            : (source.title || this.extractDomain(source.url));
+                                        return `<li><a href="${canvas.escapeHtml(url)}" target="_blank" rel="noopener">${canvas.escapeHtml(title)}</a></li>`;
+                                    }).join('')}
+                                </ul>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+            html += `
+                    </div>
+                </details>
+            `;
         }
 
         // Main content with citation processing
@@ -338,6 +443,160 @@ NodeRegistry.register({
     text-decoration: underline;
 }
 
+/* Progress indicator */
+.perplexity-progress {
+    margin: 12px 0;
+}
+
+.perplexity-progress-bar {
+    width: 100%;
+    height: 8px;
+    background: rgba(33, 150, 243, 0.15);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 6px;
+}
+
+.perplexity-progress-fill {
+    height: 100%;
+    background: var(--node-perplexity-border);
+    transition: width 0.3s ease;
+}
+
+.perplexity-progress-label {
+    font-size: 0.8em;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+/* Reasoning section */
+.perplexity-reasoning-section {
+    margin: 12px 0;
+    padding: 12px;
+    background: rgba(156, 39, 176, 0.08);
+    border: 1px solid rgba(156, 39, 176, 0.2);
+    border-radius: var(--radius-sm, 4px);
+}
+
+.perplexity-reasoning-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9em;
+    font-weight: 600;
+    color: var(--text-primary);
+    cursor: pointer;
+    list-style: none;
+}
+
+.perplexity-reasoning-header::-webkit-details-marker {
+    display: none;
+}
+
+.reasoning-icon {
+    font-size: 1em;
+}
+
+.perplexity-reasoning-content {
+    margin-top: 12px;
+    font-size: 0.85em;
+    color: var(--text-secondary);
+}
+
+.perplexity-reasoning-item {
+    padding: 8px;
+    margin: 4px 0;
+    background: rgba(156, 39, 176, 0.05);
+    border-radius: var(--radius-sm, 4px);
+}
+
+/* Research steps section */
+.perplexity-steps-section {
+    margin: 12px 0;
+    padding: 12px;
+    background: rgba(33, 150, 243, 0.08);
+    border: 1px solid rgba(33, 150, 243, 0.2);
+    border-radius: var(--radius-sm, 4px);
+}
+
+.perplexity-steps-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9em;
+    font-weight: 600;
+    color: var(--text-primary);
+    cursor: pointer;
+    list-style: none;
+}
+
+.perplexity-steps-header::-webkit-details-marker {
+    display: none;
+}
+
+.steps-icon {
+    font-size: 1em;
+}
+
+.perplexity-steps-content {
+    margin-top: 12px;
+}
+
+.perplexity-step-item {
+    padding: 12px;
+    margin: 8px 0;
+    background: rgba(33, 150, 243, 0.05);
+    border: 1px solid rgba(33, 150, 243, 0.15);
+    border-radius: var(--radius-sm, 4px);
+}
+
+.perplexity-step-item.completed {
+    opacity: 0.9;
+}
+
+.perplexity-step-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    font-size: 0.9em;
+    margin-bottom: 8px;
+}
+
+.step-icon {
+    font-size: 1em;
+}
+
+.perplexity-step-thinking {
+    font-size: 0.85em;
+    color: var(--text-muted);
+    font-style: italic;
+    margin: 6px 0;
+    padding: 6px 10px;
+    background: rgba(156, 39, 176, 0.08);
+    border-left: 3px solid rgba(156, 39, 176, 0.4);
+    border-radius: 2px;
+}
+
+.perplexity-step-content {
+    font-size: 0.9em;
+    margin: 8px 0;
+}
+
+.perplexity-step-sources {
+    font-size: 0.85em;
+    margin-top: 8px;
+}
+
+.perplexity-step-sources ul {
+    margin: 4px 0 0 0;
+    padding-left: 20px;
+}
+
+.perplexity-step-sources li {
+    margin: 2px 0;
+}
+
 /* Error state */
 .perplexity-error {
     display: flex;
@@ -364,6 +623,34 @@ NodeRegistry.register({
 
     .perplexity-status {
         background: rgba(33, 150, 243, 0.25);
+    }
+
+    .perplexity-progress-bar {
+        background: rgba(33, 150, 243, 0.25);
+    }
+
+    .perplexity-reasoning-section {
+        background: rgba(156, 39, 176, 0.15);
+        border-color: rgba(156, 39, 176, 0.3);
+    }
+
+    .perplexity-reasoning-item {
+        background: rgba(156, 39, 176, 0.1);
+    }
+
+    .perplexity-steps-section {
+        background: rgba(33, 150, 243, 0.15);
+        border-color: rgba(33, 150, 243, 0.3);
+    }
+
+    .perplexity-step-item {
+        background: rgba(33, 150, 243, 0.1);
+        border-color: rgba(33, 150, 243, 0.25);
+    }
+
+    .perplexity-step-thinking {
+        background: rgba(156, 39, 176, 0.15);
+        border-left-color: rgba(156, 39, 176, 0.5);
     }
 
     .perplexity-source-item {

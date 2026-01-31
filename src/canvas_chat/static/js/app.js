@@ -4745,18 +4745,32 @@ print("Hello from Pyodide!")
     /**
      * Show a temporary toast notification
      * @param {string} message - Message to display
-     * @param {number} duration - Duration in ms (default 3000)
+     * @param {number|string} durationOrType - Duration in ms (number) or type string ('error', 'success', 'info', 'warning')
      */
-    showToast(message, duration = 3000) {
+    showToast(message, durationOrType = 3000) {
         // Remove existing toast if any
         const existingToast = document.querySelector('.toast-notification');
         if (existingToast) {
             existingToast.remove();
         }
 
+        // Determine if second parameter is type or duration
+        let duration = 3000;
+        let type = null;
+        if (typeof durationOrType === 'string') {
+            type = durationOrType;
+            // Error toasts stay longer
+            duration = type === 'error' ? 5000 : 3000;
+        } else if (typeof durationOrType === 'number') {
+            duration = durationOrType;
+        }
+
         // Create toast element
         const toast = document.createElement('div');
         toast.className = 'toast-notification';
+        if (type) {
+            toast.classList.add(`toast-${type}`);
+        }
         toast.textContent = message;
         document.body.appendChild(toast);
 

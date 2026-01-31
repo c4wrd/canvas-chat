@@ -70,6 +70,23 @@ logger = logging.getLogger(__name__)
 # Configure litellm
 litellm.drop_params = True  # Drop unsupported params gracefully
 
+# Enable debugging if LITELLM_LOG is set
+litellm_log_level = os.environ.get("LITELLM_LOG", "").upper()
+if litellm_log_level:
+    litellm.set_verbose = True
+    logger.info(f"LiteLLM debugging enabled with log level: {litellm_log_level}")
+
+    # Configure litellm's logger if specific level is set
+    litellm_logger = logging.getLogger("LiteLLM")
+    if litellm_log_level == "DEBUG":
+        litellm_logger.setLevel(logging.DEBUG)
+    elif litellm_log_level == "INFO":
+        litellm_logger.setLevel(logging.INFO)
+    elif litellm_log_level == "WARNING":
+        litellm_logger.setLevel(logging.WARNING)
+    elif litellm_log_level == "ERROR":
+        litellm_logger.setLevel(logging.ERROR)
+
 # Dev mode detection and live reload support
 # Uvicorn sets this env var when running with --reload
 DEV_MODE = os.environ.get("WATCHFILES_FORCE_POLLING") is not None or \
@@ -408,6 +425,21 @@ class PerplexitySearchRequest(BaseModel):
     query: str
     api_key: str
     num_results: int = 5
+
+
+class PerplexityResponsesRequest(BaseModel):
+    """Request body for Perplexity responses API endpoint."""
+
+    input: str | list[str]
+    preset: str | None = None
+    model: str | None = None
+    instructions: str | None = None
+    max_steps: int = 3
+    reasoning_effort: str | None = None
+    tools: list[str] | None = None
+    api_key: str
+    stream: bool = True
+    context: str | None = None
 
 
 class PerplexityCitation(BaseModel):
@@ -3133,6 +3165,227 @@ async def perplexity_search(request: PerplexitySearchRequest):
         logger.error(f"Perplexity search failed: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/api/perplexity/responses")
+async def perplexity_responses(request: PerplexityResponsesRequest):
+    """
+    Perplexity Responses API - multi-step research with reasoning.
+
+    Supports:
+    - Presets: fast-search, pro-search, deep-research
+    - Custom models: sonar, claude, gpt, gemini, etc.
+    - Multi-step research with max_steps (1-10)
+    - Reasoning with configurable effort (low, medium, high)
+    - Tools: web_search, fetch_url
+
+    Returns SSE stream with events:
+    - step_start: New research step begins
+    - step_thinking: Reasoning/thinking content
+    - step_content: Main content chunks
+    - step_sources: Sources for current step
+    - step_complete: Step finished
+    - citations: Final citation list
+    - done: Research complete
+    - error: Error occurred
+    """
+    logger.info(
+        f"Perplexity responses request: input='{str(request.input)[:100]}...', "
+        f"preset={request.preset}, model={request.model}, max_steps={request.max_steps}"
+    )
+
+    async def generate():
+        try:
+            # Build request payload
+            payload = {
+                "input": request.input,
+                "stream": True,
+            }
+
+            # Add context to input if provided
+            if request.context and isinstance(payload["input"], str):
+                payload["input"] = (
+                    f"Context:\n{request.context}\n\nQuery: {payload['input']}"
+                )
+
+            # Add preset or model
+            if request.preset:
+                payload["preset"] = request.preset
+            elif request.model:
+                payload["model"] = request.model
+
+            # Add optional parameters
+            if request.instructions:
+                payload["instructions"] = request.instructions
+            if request.max_steps:
+                payload["max_steps"] = request.max_steps
+            if request.reasoning_effort:
+                payload["reasoning"] = {"effort": request.reasoning_effort}
+
+            # Add tools if specified
+            if request.tools:
+                tools_list = []
+                if "web_search" in request.tools:
+                    tools_list.append({"type": "web_search"})
+                if "fetch_url" in request.tools:
+                    tools_list.append({"type": "fetch_url"})
+                if tools_list:
+                    payload["tools"] = tools_list
+
+            logger.info(
+                "Perplexity request payload: %s", json.dumps(payload, default=str)
+            )
+
+            # Track state
+            current_step = 0
+            all_citations = []
+
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                async with client.stream(
+                    "POST",
+                    "https://api.perplexity.ai/v1/responses",
+                    headers={
+                        "Authorization": f"Bearer {request.api_key}",
+                        "Content-Type": "application/json",
+                        "Accept": "text/event-stream",
+                    },
+                    json=payload,
+                ) as response:
+                    response.raise_for_status()
+
+                    buffer = ""
+                    async for chunk in response.aiter_text():
+                        buffer += chunk
+
+                        # Parse SSE events from buffer
+                        while "\n\n" in buffer:
+                            event_block, buffer = buffer.split("\n\n", 1)
+
+                            # Parse event type and data
+                            event_type = None
+                            event_data = None
+
+                            for line in event_block.split("\n"):
+                                if line.startswith("event:"):
+                                    event_type = line[6:].strip()
+                                elif line.startswith("data:"):
+                                    event_data = line[5:].strip()
+
+                            if not event_data or event_data == "[DONE]":
+                                continue
+
+                            try:
+                                data = json.loads(event_data)
+                            except json.JSONDecodeError:
+                                logger.warning(
+                                    "Failed to parse SSE data: %s", event_data[:100]
+                                )
+                                continue
+
+                            chunk_type = data.get("type", event_type)
+                            logger.info("Perplexity chunk: type=%s", chunk_type)
+
+                            # Output item added = step start
+                            if chunk_type == "response.output_item.added":
+                                current_step += 1
+                                yield {
+                                    "event": "step_start",
+                                    "data": json.dumps({"step": current_step}),
+                                }
+
+                            # Reasoning events - emit thinking
+                            elif chunk_type == "response.reasoning.started":
+                                thought = data.get("thought")
+                                if thought:
+                                    yield {"event": "step_thinking", "data": thought}
+
+                            elif chunk_type == "response.reasoning.search_queries":
+                                thought = data.get("thought")
+                                if thought:
+                                    yield {"event": "step_thinking", "data": thought}
+                                queries = data.get("queries")
+                                if queries:
+                                    yield {
+                                        "event": "search_queries",
+                                        "data": json.dumps(queries),
+                                    }
+
+                            elif chunk_type == "response.reasoning.search_results":
+                                thought = data.get("thought")
+                                if thought:
+                                    yield {"event": "step_thinking", "data": thought}
+                                results = data.get("results", [])
+                                if results:
+                                    sources = [
+                                        {
+                                            "id": r.get("id"),
+                                            "title": r.get("title"),
+                                            "url": r.get("url"),
+                                            "snippet": r.get("snippet"),
+                                        }
+                                        for r in results
+                                    ]
+                                    all_citations.extend(sources)
+                                    yield {
+                                        "event": "step_sources",
+                                        "data": json.dumps(sources),
+                                    }
+
+                            elif chunk_type in (
+                                "response.reasoning.fetch_url_queries",
+                                "response.reasoning.fetch_url_results",
+                                "response.reasoning.stopped",
+                            ):
+                                thought = data.get("thought")
+                                if thought:
+                                    yield {"event": "step_thinking", "data": thought}
+
+                            # Text content streaming
+                            elif chunk_type == "response.output_text.delta":
+                                delta = data.get("delta")
+                                if delta:
+                                    yield {"event": "step_content", "data": delta}
+
+                            # Output item done = step complete
+                            elif chunk_type == "response.output_item.done":
+                                yield {
+                                    "event": "step_complete",
+                                    "data": json.dumps({"step": current_step}),
+                                }
+
+                            # Response completed
+                            elif chunk_type == "response.completed":
+                                if all_citations:
+                                    yield {
+                                        "event": "citations",
+                                        "data": json.dumps(all_citations),
+                                    }
+                                yield {"event": "done", "data": ""}
+
+                            # Error
+                            elif chunk_type == "response.failed":
+                                error = data.get("error", {})
+                                error_msg = (
+                                    error.get("message", str(error))
+                                    if isinstance(error, dict)
+                                    else str(error)
+                                )
+                                yield {"event": "error", "data": error_msg}
+
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f"Perplexity HTTP error: {e.response.status_code} - {e.response.text}"
+            )
+            yield {
+                "event": "error",
+                "data": f"HTTP {e.response.status_code}: {e.response.text[:200]}",
+            }
+        except Exception as e:
+            logger.error(f"Perplexity responses failed: {e}")
+            logger.error(traceback.format_exc())
+            yield {"event": "error", "data": str(e)}
+
+    return EventSourceResponse(generate())
 
 
 # --- Google Deep Research Endpoints ---

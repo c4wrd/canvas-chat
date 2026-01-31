@@ -229,6 +229,14 @@ class FeatureRegistry {
                         handler: 'handlePerplexityPro',
                     },
                     {
+                        command: '/perplexity-research',
+                        handler: 'handlePerplexityResearch',
+                    },
+                    {
+                        command: '/perplexity-agent',
+                        handler: 'handlePerplexityAgent',
+                    },
+                    {
                         command: '/perplexity-search',
                         handler: 'handlePerplexitySearch',
                     },
