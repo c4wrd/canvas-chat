@@ -440,6 +440,12 @@ class PerplexityResponsesRequest(BaseModel):
     api_key: str
     stream: bool = True
     context: str | None = None
+    # Search filtering options (passed to web_search_options)
+    search_domain_filter: list[str] | None = None
+    search_recency_filter: str | None = None  # hour, day, week, month, year
+    search_after_date: str | None = None  # MM/DD/YYYY format
+    search_before_date: str | None = None  # MM/DD/YYYY format
+    search_language_filter: list[str] | None = None  # ISO language codes
 
 
 class PerplexityCitation(BaseModel):
@@ -3231,6 +3237,21 @@ async def perplexity_responses(request: PerplexityResponsesRequest):
                     tools_list.append({"type": "fetch_url"})
                 if tools_list:
                     payload["tools"] = tools_list
+
+            # Build web_search_options if any search filters are provided
+            web_search_options = {}
+            if request.search_domain_filter:
+                web_search_options["search_domain_filter"] = request.search_domain_filter
+            if request.search_recency_filter:
+                web_search_options["search_recency_filter"] = request.search_recency_filter
+            if request.search_after_date:
+                web_search_options["search_after_date"] = request.search_after_date
+            if request.search_before_date:
+                web_search_options["search_before_date"] = request.search_before_date
+            if request.search_language_filter:
+                web_search_options["search_language_filter"] = request.search_language_filter
+            if web_search_options:
+                payload["web_search_options"] = web_search_options
 
             logger.info(
                 "Perplexity request payload: %s", json.dumps(payload, default=str)

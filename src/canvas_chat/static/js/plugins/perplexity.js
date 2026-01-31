@@ -69,6 +69,62 @@ class PerplexityFeature extends FeaturePlugin {
                             </select>
                         </div>
 
+                        <details class="perplexity-filters-section">
+                            <summary>Search Filters</summary>
+                            <div class="perplexity-filters-content">
+                                <div class="perplexity-domain-group">
+                                    <label>Domain Filter</label>
+                                    <div class="perplexity-domain-presets">
+                                        <button type="button" data-domains=".edu,arxiv.org,scholar.google.com" class="domain-preset-btn">Academic</button>
+                                        <button type="button" data-domains="reuters.com,apnews.com,bbc.com,npr.org" class="domain-preset-btn">News</button>
+                                        <button type="button" data-domains=".gov,gov.uk,europa.eu" class="domain-preset-btn">Government</button>
+                                    </div>
+                                    <div class="perplexity-domain-mode">
+                                        <label><input type="radio" name="domain-mode" value="allow" checked /> Include only</label>
+                                        <label><input type="radio" name="domain-mode" value="block" /> Exclude</label>
+                                    </div>
+                                    <input type="text" id="perplexity-domains" class="perplexity-input" placeholder="example.com, arxiv.org (comma-separated)" />
+                                    <small>Click presets to add domains. Max 20 domains.</small>
+                                </div>
+
+                                <div class="perplexity-recency-group">
+                                    <label for="perplexity-recency">Content Freshness</label>
+                                    <select id="perplexity-recency" class="perplexity-select">
+                                        <option value="">Any time</option>
+                                        <option value="hour">Past hour</option>
+                                        <option value="day">Past 24 hours</option>
+                                        <option value="week">Past week</option>
+                                        <option value="month">Past month</option>
+                                        <option value="year">Past year</option>
+                                    </select>
+                                </div>
+
+                                <div class="perplexity-date-group">
+                                    <label>Custom Date Range (optional)</label>
+                                    <div class="perplexity-date-inputs">
+                                        <input type="date" id="perplexity-date-after" class="perplexity-input" />
+                                        <span>to</span>
+                                        <input type="date" id="perplexity-date-before" class="perplexity-input" />
+                                    </div>
+                                </div>
+
+                                <div class="perplexity-language-group">
+                                    <label for="perplexity-language">Result Languages</label>
+                                    <select id="perplexity-language" class="perplexity-select" multiple size="3">
+                                        <option value="en" selected>English</option>
+                                        <option value="es">Spanish</option>
+                                        <option value="fr">French</option>
+                                        <option value="de">German</option>
+                                        <option value="zh">Chinese</option>
+                                        <option value="ja">Japanese</option>
+                                        <option value="ko">Korean</option>
+                                        <option value="pt">Portuguese</option>
+                                    </select>
+                                    <small>Ctrl/Cmd+click to select multiple</small>
+                                </div>
+                            </div>
+                        </details>
+
                         <div id="perplexity-advanced-options" style="display: none;">
                             <div class="perplexity-model-group">
                                 <label for="perplexity-model">Model</label>
@@ -233,6 +289,152 @@ class PerplexityFeature extends FeaturePlugin {
                 padding-top: 20px;
                 border-top: 1px solid var(--border);
             }
+
+            /* Search Filters Section */
+            .perplexity-filters-section {
+                margin: 16px 0;
+                border: 1px solid var(--border);
+                border-radius: var(--radius-sm);
+            }
+
+            .perplexity-filters-section summary {
+                padding: 10px 12px;
+                cursor: pointer;
+                font-weight: 500;
+                font-size: 13px;
+                background: var(--bg-secondary);
+                border-radius: var(--radius-sm);
+                color: var(--text-primary);
+            }
+
+            .perplexity-filters-section summary:hover {
+                background: var(--bg-tertiary, var(--bg-secondary));
+            }
+
+            .perplexity-filters-section[open] summary {
+                border-bottom: 1px solid var(--border);
+                border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+            }
+
+            .perplexity-filters-content {
+                padding: 16px;
+            }
+
+            .perplexity-filters-content > div {
+                margin-bottom: 16px;
+            }
+
+            .perplexity-filters-content > div:last-child {
+                margin-bottom: 0;
+            }
+
+            .perplexity-filters-content label {
+                display: block;
+                font-size: 13px;
+                font-weight: 500;
+                color: var(--text-primary);
+                margin-bottom: 8px;
+            }
+
+            .perplexity-domain-presets {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-bottom: 10px;
+            }
+
+            .domain-preset-btn {
+                padding: 4px 10px;
+                font-size: 12px;
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                background: var(--bg-primary);
+                color: var(--text-secondary);
+                cursor: pointer;
+                transition: all 0.15s ease;
+            }
+
+            .domain-preset-btn:hover {
+                background: var(--bg-secondary);
+                border-color: var(--accent);
+                color: var(--text-primary);
+            }
+
+            .domain-preset-btn.active {
+                background: var(--accent);
+                color: white;
+                border-color: var(--accent);
+            }
+
+            .perplexity-domain-mode {
+                display: flex;
+                gap: 16px;
+                margin-bottom: 8px;
+            }
+
+            .perplexity-domain-mode label {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                font-weight: normal;
+                cursor: pointer;
+            }
+
+            .perplexity-input {
+                width: 100%;
+                padding: 8px 12px;
+                font-size: 14px;
+                border: 1px solid var(--border);
+                border-radius: var(--radius-sm);
+                background: var(--bg-primary);
+                color: var(--text-primary);
+            }
+
+            .perplexity-input:focus {
+                outline: none;
+                border-color: var(--accent);
+            }
+
+            .perplexity-filters-content small {
+                display: block;
+                margin-top: 4px;
+                font-size: 11px;
+                color: var(--text-tertiary, var(--text-secondary));
+            }
+
+            .perplexity-date-inputs {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .perplexity-date-inputs input[type="date"] {
+                flex: 1;
+                padding: 6px 8px;
+                font-size: 14px;
+                border: 1px solid var(--border);
+                border-radius: var(--radius-sm);
+                background: var(--bg-primary);
+                color: var(--text-primary);
+            }
+
+            .perplexity-date-inputs input[type="date"]:focus {
+                outline: none;
+                border-color: var(--accent);
+            }
+
+            .perplexity-date-inputs span {
+                color: var(--text-secondary);
+                font-size: 13px;
+            }
+
+            #perplexity-language {
+                min-height: 80px;
+            }
+
+            #perplexity-language option {
+                padding: 4px 8px;
+            }
         `);
     }
 
@@ -276,6 +478,34 @@ class PerplexityFeature extends FeaturePlugin {
                 stepsValue.textContent = stepsSlider.value;
             });
 
+            // Set up domain preset buttons
+            const domainPresetBtns = document.querySelectorAll('.domain-preset-btn');
+            const domainInput = document.getElementById('perplexity-domains');
+
+            const handleDomainPresetClick = (e) => {
+                const btn = e.target;
+                const newDomains = btn.dataset.domains;
+                const existing = domainInput.value.trim();
+
+                if (existing) {
+                    // Merge without duplicates
+                    const allDomains = [...new Set([
+                        ...existing.split(',').map(d => d.trim()).filter(Boolean),
+                        ...newDomains.split(',')
+                    ])];
+                    domainInput.value = allDomains.join(', ');
+                } else {
+                    domainInput.value = newDomains;
+                }
+
+                // Toggle button active state
+                btn.classList.toggle('active');
+            };
+
+            domainPresetBtns.forEach(btn => {
+                btn.addEventListener('click', handleDomainPresetClick);
+            });
+
             // Set up event handlers
             const closeBtn = document.getElementById('perplexity-agent-close');
             const cancelBtn = document.getElementById('perplexity-agent-cancel');
@@ -283,12 +513,33 @@ class PerplexityFeature extends FeaturePlugin {
 
             const cleanup = () => {
                 presetSelect.removeEventListener('change', updateAdvancedVisibility);
+                domainPresetBtns.forEach(btn => {
+                    btn.removeEventListener('click', handleDomainPresetClick);
+                    btn.classList.remove('active');
+                });
+                // Reset filter inputs
+                domainInput.value = '';
+                document.querySelector('input[name="domain-mode"][value="allow"]').checked = true;
+                document.getElementById('perplexity-recency').value = '';
+                document.getElementById('perplexity-date-after').value = '';
+                document.getElementById('perplexity-date-before').value = '';
+                const languageSelect = document.getElementById('perplexity-language');
+                Array.from(languageSelect.options).forEach(opt => {
+                    opt.selected = opt.value === 'en';
+                });
                 this.modalManager.hidePluginModal('perplexity', 'agent');
             };
 
             const handleCancel = () => {
                 cleanup();
                 resolve(null);
+            };
+
+            // Helper to convert date input value (YYYY-MM-DD) to MM/DD/YYYY format
+            const formatDateForAPI = (dateStr) => {
+                if (!dateStr) return null;
+                const [year, month, day] = dateStr.split('-');
+                return `${month}/${day}/${year}`;
             };
 
             const handleStart = () => {
@@ -330,6 +581,40 @@ class PerplexityFeature extends FeaturePlugin {
                         config.max_steps = 10;
                         config.reasoning_effort = 'high';
                     }
+                }
+
+                // Collect search filters (applies to all modes)
+                const domainsValue = domainInput.value.trim();
+                const domainMode = document.querySelector('input[name="domain-mode"]:checked')?.value;
+                const recency = document.getElementById('perplexity-recency').value;
+                const dateAfter = document.getElementById('perplexity-date-after').value;
+                const dateBefore = document.getElementById('perplexity-date-before').value;
+                const languages = [...document.getElementById('perplexity-language').selectedOptions]
+                    .map(opt => opt.value);
+
+                // Build domain filter array
+                if (domainsValue) {
+                    const domains = domainsValue.split(',').map(d => d.trim()).filter(Boolean);
+                    // Prefix with - for exclusion mode
+                    config.search_domain_filter = domainMode === 'block'
+                        ? domains.map(d => `-${d}`)
+                        : domains;
+                }
+
+                // Add other filters
+                if (recency) {
+                    config.search_recency_filter = recency;
+                }
+                if (dateAfter) {
+                    config.search_after_date = formatDateForAPI(dateAfter);
+                }
+                if (dateBefore) {
+                    config.search_before_date = formatDateForAPI(dateBefore);
+                }
+                // Only include language filter if user changed from default (English only)
+                const hasNonDefaultLanguages = languages.length !== 1 || languages[0] !== 'en';
+                if (languages.length > 0 && hasNonDefaultLanguages) {
+                    config.search_language_filter = languages;
                 }
 
                 cleanup();
@@ -838,6 +1123,13 @@ class PerplexityFeature extends FeaturePlugin {
             if (config.reasoning_effort) requestBody.reasoning_effort = config.reasoning_effort;
             if (config.tools && config.tools.length > 0) requestBody.tools = config.tools;
             if (context) requestBody.context = context;
+
+            // Add search filter options
+            if (config.search_domain_filter) requestBody.search_domain_filter = config.search_domain_filter;
+            if (config.search_recency_filter) requestBody.search_recency_filter = config.search_recency_filter;
+            if (config.search_after_date) requestBody.search_after_date = config.search_after_date;
+            if (config.search_before_date) requestBody.search_before_date = config.search_before_date;
+            if (config.search_language_filter) requestBody.search_language_filter = config.search_language_filter;
 
             // Call streaming endpoint
             const response = await fetch(apiUrl('/api/perplexity/responses'), {
