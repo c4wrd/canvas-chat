@@ -185,3 +185,6 @@ config.yaml
 # TEMP
 FETCHING*.md
 .plans/
+
+# Firebase settings
+firebase-service-account.json

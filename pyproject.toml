@@ -19,6 +19,7 @@ dependencies = [
     "defusedxml",
     "google-genai>=1.0.0",
     "perplexityai>=0.23.0",
+    "firebase-admin>=6.0.0",
 ]
 
 [project.optional-dependencies]

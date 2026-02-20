@@ -81,6 +81,16 @@ class Storage {
     constructor() {
         this.db = null;
         this.dbReady = this.initDB();
+        /** @type {import('./firestore-sync.js').FirestoreSync|null} */
+        this._remoteSync = null;
+    }
+
+    /**
+     * Set the remote sync instance (called when user signs in).
+     * @param {import('./firestore-sync.js').FirestoreSync|null} syncInstance
+     */
+    setRemoteSync(syncInstance) {
+        this._remoteSync = syncInstance;
     }
 
     /**
@@ -140,7 +150,7 @@ class Storage {
      */
     async saveSession(session) {
         const db = await this.ensureDB();
-        return new Promise((resolve, reject) => {
+        const result = await new Promise((resolve, reject) => {
             const tx = db.transaction(SESSIONS_STORE, 'readwrite');
             const store = tx.objectStore(SESSIONS_STORE);
 
@@ -150,6 +160,15 @@ class Storage {
             request.onsuccess = () => resolve(session);
             request.onerror = () => reject(request.error);
         });
+
+        // Fire-and-forget remote sync
+        if (this._remoteSync) {
+            this._remoteSync.saveSession(session).catch((err) => {
+                console.warn('[Storage] Remote sync error:', err);
+            });
+        }
+
+        return result;
     }
 
     /**
@@ -201,7 +220,7 @@ class Storage {
      */
     async deleteSession(id) {
         const db = await this.ensureDB();
-        return new Promise((resolve, reject) => {
+        await new Promise((resolve, reject) => {
             const tx = db.transaction(SESSIONS_STORE, 'readwrite');
             const store = tx.objectStore(SESSIONS_STORE);
             const request = store.delete(id);
@@ -209,6 +228,13 @@ class Storage {
             request.onsuccess = () => resolve();
             request.onerror = () => reject(request.error);
         });
+
+        // Fire-and-forget remote delete
+        if (this._remoteSync) {
+            this._remoteSync.deleteSession(id).catch((err) => {
+                console.warn('[Storage] Remote delete error:', err);
+            });
+        }
     }
 
     // --- Export/Import ---
@@ -860,6 +886,39 @@ class Storage {
         const filtered = models.filter((m) => m.id !== modelId);
         localStorage.setItem('canvas-chat-custom-models', JSON.stringify(filtered));
         return filtered.length < models.length;
+    }
+
+    /**
+     * Get non-sensitive settings suitable for remote sync.
+     * Excludes API keys and auth tokens.
+     * @returns {Object}
+     */
+    getSyncableSettings() {
+        return {
+            temperature: this.getTemperature(),
+            reasoningEffort: this.getReasoningEffort(),
+            toolsEnabled: this.getToolsEnabled(),
+            enabledTools: this.getEnabledTools(),
+            flashcardStrictness: this.getFlashcardStrictness(),
+            recentModels: this.getRecentModels(),
+            customModels: this.getCustomModels(),
+        };
+    }
+
+    /**
+     * Apply settings received from remote sync.
+     * Only applies non-sensitive preferences.
+     * @param {Object} settings
+     */
+    applySyncedSettings(settings) {
+        if (settings.temperature !== undefined) this.setTemperature(settings.temperature);
+        if (settings.reasoningEffort !== undefined) this.setReasoningEffort(settings.reasoningEffort);
+        if (settings.toolsEnabled !== undefined) this.setToolsEnabled(settings.toolsEnabled);
+        if (settings.enabledTools !== undefined) this.setEnabledTools(settings.enabledTools);
+        if (settings.flashcardStrictness !== undefined) this.setFlashcardStrictness(settings.flashcardStrictness);
+        if (settings.customModels && Array.isArray(settings.customModels)) {
+            localStorage.setItem('canvas-chat-custom-models', JSON.stringify(settings.customModels));
+        }
     }
 
     /**

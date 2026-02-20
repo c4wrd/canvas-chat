@@ -30,3 +30,5 @@
 @import url('components.css');
 /* Git Repository: git repo file selection modal and node tree */
 @import url('git-repo.css');
+/* Auth: sign-in, avatar, sync indicators */
+@import url('auth.css');

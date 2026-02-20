@@ -1,0 +1,145 @@
+/* Auth: sign-in button, avatar, dropdown menu, sync indicators */
+
+.auth-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.auth-sign-in-btn svg {
+    color: var(--text-muted);
+}
+
+.auth-sign-in-btn:hover svg {
+    color: var(--text-primary);
+}
+
+/* User avatar (shown when signed in) */
+.auth-user-info {
+    position: relative;
+}
+
+.auth-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: border-color 0.15s;
+}
+
+.auth-avatar:hover {
+    border-color: var(--accent);
+}
+
+/* Dropdown menu */
+.auth-menu {
+    position: fixed;
+    background: var(--bg-primary);
+    border: 1px solid var(--edge-color-light);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    min-width: 200px;
+    z-index: 10001;
+    animation: tooltipFadeIn 0.1s ease-out;
+    padding: 8px 0;
+}
+
+.auth-menu-header {
+    padding: 8px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.auth-user-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.auth-user-email {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.auth-menu-divider {
+    height: 1px;
+    background: var(--edge-color-light);
+    margin: 4px 0;
+}
+
+.auth-menu-item {
+    display: block;
+    width: 100%;
+    padding: 8px 16px;
+    border: none;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-primary);
+    transition: background 0.1s;
+}
+
+.auth-menu-item:hover {
+    background: var(--bg-secondary);
+}
+
+/* Sync status indicator in session list */
+.session-item-sync {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: 8px;
+}
+
+.session-item-sync .cloud-icon {
+    font-size: 13px;
+}
+
+.session-item-sync.synced {
+    color: var(--success, #22c55e);
+}
+
+.session-item-sync.syncing {
+    color: var(--accent);
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Sync status bar in session modal */
+.sync-status-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.sync-status-bar .sync-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.sync-status-bar.connected .sync-dot {
+    background: var(--success, #22c55e);
+}
+
+.sync-status-bar.syncing .sync-dot {
+    background: var(--accent);
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}

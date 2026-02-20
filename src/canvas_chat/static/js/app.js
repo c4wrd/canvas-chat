@@ -57,6 +57,10 @@ import {
 import { AppContext } from './feature-plugin.js';
 import { FeatureRegistry } from './feature-registry.js';
 import { StreamingManager } from './streaming-manager.js';
+// Firebase auth & sync
+import { initFirebase } from './firebase-config.js';
+import { authManager } from './auth.js';
+import { FirestoreSync } from './firestore-sync.js';
 
 /* global pyodideRunner */
 
@@ -98,6 +102,9 @@ class App {
         // Admin mode state (set by loadConfig)
         this.adminMode = false;
         this.adminModels = []; // Models configured by admin (only in admin mode)
+
+        // Firebase sync
+        this.firestoreSync = null;
 
         // Feature flags (set by fetchFeatureFlags)
         this.copilotEnabled = true; // Default to enabled, updated after fetch
@@ -174,6 +181,9 @@ class App {
 
         // Load admin config first (determines if admin mode is enabled)
         await this.loadConfig();
+
+        // Initialize Firebase (non-blocking — auth state arrives via callback)
+        this.initFirebaseAuth();
 
         // Fetch feature flags (determines which features are enabled)
         await this.fetchFeatureFlags();
@@ -269,6 +279,195 @@ class App {
             console.warn('[App] Failed to load config, using normal mode:', error);
             this.adminMode = false;
             this.adminModels = [];
+        }
+    }
+
+    /**
+     * Initialize Firebase and listen for auth state changes.
+     */
+    initFirebaseAuth() {
+        const fb = initFirebase();
+        if (!fb) return; // SDK not loaded
+
+        authManager.init();
+
+        // Auth UI elements
+        const signInBtn = document.getElementById('auth-sign-in-btn');
+        const userInfo = document.getElementById('auth-user-info');
+        const avatar = document.getElementById('auth-avatar');
+        const authMenu = document.getElementById('auth-menu');
+        const userName = document.getElementById('auth-user-name');
+        const userEmail = document.getElementById('auth-user-email');
+        const signOutBtn = document.getElementById('auth-sign-out-btn');
+
+        if (signInBtn) {
+            signInBtn.addEventListener('click', async () => {
+                try {
+                    await authManager.signIn();
+                } catch (err) {
+                    console.error('[App] Sign-in failed:', err);
+                }
+            });
+        }
+
+        if (avatar) {
+            avatar.addEventListener('click', () => {
+                if (authMenu) {
+                    const isHidden = authMenu.style.display === 'none';
+                    if (isHidden) {
+                        // Position below the avatar using fixed positioning
+                        const rect = avatar.getBoundingClientRect();
+                        authMenu.style.top = `${rect.bottom + 4}px`;
+                        authMenu.style.right = `${window.innerWidth - rect.right}px`;
+                        authMenu.style.display = 'block';
+                    } else {
+                        authMenu.style.display = 'none';
+                    }
+                }
+            });
+        }
+
+        if (signOutBtn) {
+            signOutBtn.addEventListener('click', async () => {
+                if (authMenu) authMenu.style.display = 'none';
+                await authManager.signOut();
+            });
+        }
+
+        // Close auth menu when clicking outside
+        document.addEventListener('click', (e) => {
+            if (authMenu && !e.target.closest('.auth-user-info')) {
+                authMenu.style.display = 'none';
+            }
+        });
+
+        // Listen for auth state changes
+        authManager.onAuthStateChanged((user) => this.handleAuthStateChange(user));
+    }
+
+    /**
+     * Handle Firebase auth state change.
+     * @param {import('./auth.js').AuthUser|null} user
+     */
+    async handleAuthStateChange(user) {
+        const signInBtn = document.getElementById('auth-sign-in-btn');
+        const userInfo = document.getElementById('auth-user-info');
+        const avatar = document.getElementById('auth-avatar');
+        const userName = document.getElementById('auth-user-name');
+        const userEmail = document.getElementById('auth-user-email');
+
+        if (user) {
+            // Signed in — show avatar, hide sign-in button
+            if (signInBtn) signInBtn.style.display = 'none';
+            if (userInfo) userInfo.style.display = 'flex';
+            if (avatar && user.photoURL) avatar.src = user.photoURL;
+            if (userName) userName.textContent = user.displayName || '';
+            if (userEmail) userEmail.textContent = user.email || '';
+
+            // Set up Firestore sync
+            if (this.firestoreSync) {
+                this.firestoreSync.destroy();
+            }
+            this.firestoreSync = new FirestoreSync(user.uid);
+            storage.setRemoteSync(this.firestoreSync);
+
+            // Save user profile
+            this.firestoreSync.saveProfile({
+                displayName: user.displayName,
+                email: user.email,
+                photoURL: user.photoURL,
+            }).catch(() => {});
+
+            // Offer to migrate local sessions on first sign-in
+            await this.offerLocalSessionMigration();
+
+            // Merge remote sessions not present locally
+            await this.mergeRemoteSessions();
+
+            // Sync settings from remote
+            try {
+                const remoteSettings = await this.firestoreSync.getSettings();
+                if (remoteSettings) {
+                    storage.applySyncedSettings(remoteSettings);
+                }
+            } catch (err) {
+                console.warn('[App] Failed to load remote settings:', err);
+            }
+        } else {
+            // Signed out — show sign-in button, hide avatar
+            if (signInBtn) signInBtn.style.display = 'flex';
+            if (userInfo) userInfo.style.display = 'none';
+
+            // Disconnect sync
+            if (this.firestoreSync) {
+                this.firestoreSync.destroy();
+                this.firestoreSync = null;
+            }
+            storage.setRemoteSync(null);
+        }
+    }
+
+    /**
+     * Offer to upload existing local sessions to Firestore on first sign-in.
+     */
+    async offerLocalSessionMigration() {
+        const migrationKey = `canvas-chat-migrated-${authManager.user?.uid}`;
+        if (localStorage.getItem(migrationKey)) return; // Already migrated
+
+        const sessions = await storage.listSessions();
+        if (sessions.length === 0) {
+            localStorage.setItem(migrationKey, 'true');
+            return;
+        }
+
+        // Auto-migrate without prompt for seamless experience
+        console.log(`[App] Migrating ${sessions.length} local session(s) to cloud...`);
+        for (const session of sessions) {
+            try {
+                await this.firestoreSync.saveSession(session);
+            } catch (err) {
+                console.warn(`[App] Failed to migrate session ${session.id}:`, err);
+            }
+        }
+        localStorage.setItem(migrationKey, 'true');
+        console.log('[App] Local session migration complete');
+    }
+
+    /**
+     * Pull remote sessions not present locally into IndexedDB.
+     */
+    async mergeRemoteSessions() {
+        if (!this.firestoreSync) return;
+
+        try {
+            const remoteSessions = await this.firestoreSync.listSessions();
+            const localSessions = await storage.listSessions();
+            const localIds = new Set(localSessions.map((s) => s.id));
+
+            for (const remote of remoteSessions) {
+                if (!localIds.has(remote.id)) {
+                    // Fetch full session with nodes/edges
+                    const fullSession = await this.firestoreSync.getSession(remote.id);
+                    if (fullSession) {
+                        await storage.saveSession(fullSession);
+                        console.log(`[App] Merged remote session: ${fullSession.name}`);
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn('[App] Failed to merge remote sessions:', err);
+        }
+    }
+
+    /**
+     * Sync current settings to Firestore (called when preferences change).
+     */
+    async syncSettingsToRemote() {
+        if (!this.firestoreSync) return;
+        try {
+            await this.firestoreSync.saveSettings(storage.getSyncableSettings());
+        } catch (err) {
+            console.warn('[App] Failed to sync settings:', err);
         }
     }
 
@@ -522,6 +721,7 @@ class App {
 
     /**
      * Escape HTML to prevent XSS
+     * @param text
      */
     escapeHtml(text) {
         const div = document.createElement('div');

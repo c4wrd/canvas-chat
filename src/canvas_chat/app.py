@@ -46,8 +46,14 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from canvas_chat import __version__
+from canvas_chat.artifact_store import ArtifactStore
 from canvas_chat.config import AppConfig, is_github_copilot_enabled
 from canvas_chat.file_upload_registry import FileUploadRegistry
+from canvas_chat.firebase_admin_init import (
+    get_firestore_client,
+    is_firebase_available,
+    verify_id_token,
+)
 
 # Import built-in file upload handler plugins (registers them)
 # Import built-in URL fetch handler plugins (registers them)
@@ -89,8 +95,10 @@ if litellm_log_level:
 
 # Dev mode detection and live reload support
 # Uvicorn sets this env var when running with --reload
-DEV_MODE = os.environ.get("WATCHFILES_FORCE_POLLING") is not None or \
-           os.environ.get("CANVAS_CHAT_DEV_MODE") == "true"
+DEV_MODE = (
+    os.environ.get("WATCHFILES_FORCE_POLLING") is not None
+    or os.environ.get("CANVAS_CHAT_DEV_MODE") == "true"
+)
 SERVER_START_TIME = str(time.time())
 
 app = FastAPI(title="Canvas Chat", version=__version__)
@@ -106,6 +114,39 @@ async def dev_no_cache_middleware(request: Request, call_next):
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
     return response
+
+
+# --- Optional Firebase Auth Middleware ---
+# Extracts uid from Authorization: Bearer <idToken> header when present.
+# Unauthenticated requests proceed normally (auth is optional).
+@app.middleware("http")
+async def firebase_auth_middleware(request: Request, call_next):
+    """Extract Firebase Auth uid from Bearer token if present."""
+    request.state.uid = None
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer ") and is_firebase_available():
+        token = auth_header[7:]
+        decoded = verify_id_token(token)
+        if decoded:
+            request.state.uid = decoded.get("uid")
+    response = await call_next(request)
+    return response
+
+
+# --- Artifact Store (lazy init) ---
+_artifact_store: ArtifactStore | None = None
+
+
+def get_artifact_store() -> ArtifactStore | None:
+    """Get or create the artifact store (requires Firebase)."""
+    global _artifact_store
+    if _artifact_store is not None:
+        return _artifact_store
+    client = get_firestore_client()
+    if client is None:
+        return None
+    _artifact_store = ArtifactStore(client)
+    return _artifact_store
 
 
 # Register plugin-specific endpoints (must be after app creation)
@@ -471,7 +512,9 @@ class DeepResearchStartRequest(BaseModel):
 
     query: str  # Research query/instructions
     context: str | None = None  # Optional context from selected nodes
-    images: list[str] | None = None  # Optional base64-encoded images for multimodal context
+    images: list[str] | None = (
+        None  # Optional base64-encoded images for multimodal context
+    )
     api_key: str  # Google/Gemini API key
 
 
@@ -1522,7 +1565,9 @@ async def chat(request: ChatRequest, http_request: Request):
 
                 async for chunk in response:
                     # Check for thinking/reasoning content (extended thinking)
-                    if chunk.choices and hasattr(chunk.choices[0].delta, "reasoning_content"):
+                    if chunk.choices and hasattr(
+                        chunk.choices[0].delta, "reasoning_content"
+                    ):
                         reasoning = chunk.choices[0].delta.reasoning_content
                         if reasoning:
                             yield {"event": "thinking", "data": reasoning}
@@ -1553,7 +1598,9 @@ async def chat(request: ChatRequest, http_request: Request):
                             if tc.function and tc.function.name:
                                 tool_calls_data[idx]["name"] = tc.function.name
                             if tc.function and tc.function.arguments:
-                                tool_calls_data[idx]["arguments"] += tc.function.arguments
+                                tool_calls_data[idx]["arguments"] += (
+                                    tc.function.arguments
+                                )
 
                     # Track finish reason
                     if chunk.choices and chunk.choices[0].finish_reason:
@@ -1585,23 +1632,29 @@ async def chat(request: ChatRequest, http_request: Request):
                         tool_id = tc["id"]
                         tool_name = tc["name"]
                         try:
-                            arguments = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                            arguments = (
+                                json.loads(tc["arguments"]) if tc["arguments"] else {}
+                            )
                         except json.JSONDecodeError:
                             arguments = {}
 
                         # Emit tool_call event
                         yield {
                             "event": "tool_call",
-                            "data": json.dumps({
-                                "id": tool_id,
-                                "name": tool_name,
-                                "arguments": arguments,
-                            }),
+                            "data": json.dumps(
+                                {
+                                    "id": tool_id,
+                                    "name": tool_name,
+                                    "arguments": arguments,
+                                }
+                            ),
                         }
 
                         # Execute the tool
                         try:
-                            result = await ToolRegistry.execute_tool(tool_name, arguments)
+                            result = await ToolRegistry.execute_tool(
+                                tool_name, arguments
+                            )
                         except Exception as e:
                             logger.error(f"Tool execution error ({tool_name}): {e}")
                             result = {"error": str(e)}
@@ -1609,19 +1662,23 @@ async def chat(request: ChatRequest, http_request: Request):
                         # Emit tool_result event
                         yield {
                             "event": "tool_result",
-                            "data": json.dumps({
-                                "id": tool_id,
-                                "name": tool_name,
-                                "result": result,
-                            }),
+                            "data": json.dumps(
+                                {
+                                    "id": tool_id,
+                                    "name": tool_name,
+                                    "result": result,
+                                }
+                            ),
                         }
 
                         # Add tool result to messages
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_id,
-                            "content": json.dumps(result),
-                        })
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_id,
+                                "content": json.dumps(result),
+                            }
+                        )
 
                     # Continue the loop to get the next response
                     continue
@@ -2064,7 +2121,9 @@ async def generate_image(request: ImageGenerationRequest):
             logger.debug(f"Response data length: {len(response.data)}")
             logger.debug(f"Response data: {response.data}")
         else:
-            logger.warning(f"Response has no 'data' attribute. Attributes: {dir(response)}")
+            logger.warning(
+                f"Response has no 'data' attribute. Attributes: {dir(response)}"
+            )
 
         # Get the generated image
         if not hasattr(response, "data") or not response.data:
@@ -3025,29 +3084,34 @@ async def perplexity_chat(request: PerplexityChatRequest):
 
                 # Add context as system message if provided
                 if request.context:
-                    messages.append({
-                        "role": "system",
-                        "content": f"Use this context to help answer the question:\n\n{request.context}"
-                    })
+                    messages.append(
+                        {
+                            "role": "system",
+                            "content": f"Use this context to help answer the question:\n\n{request.context}",
+                        }
+                    )
 
-                messages.append({
-                    "role": "user",
-                    "content": request.query
-                })
+                messages.append({"role": "user", "content": request.query})
 
                 # Build web_search_options
                 web_search_options = {}
                 if request.search_domain_filter:
-                    web_search_options["search_domain_filter"] = request.search_domain_filter
+                    web_search_options["search_domain_filter"] = (
+                        request.search_domain_filter
+                    )
                 if request.search_recency_filter:
-                    web_search_options["search_recency_filter"] = request.search_recency_filter
+                    web_search_options["search_recency_filter"] = (
+                        request.search_recency_filter
+                    )
 
                 # Stream response using SDK
                 stream = await client.chat.completions.create(
                     messages=messages,
                     model=request.model,
                     stream=True,
-                    web_search_options=web_search_options if web_search_options else None,
+                    web_search_options=web_search_options
+                    if web_search_options
+                    else None,
                 )
 
                 citations = []
@@ -3061,10 +3125,12 @@ async def perplexity_chat(request: PerplexityChatRequest):
                         }
 
                     # Extract citations (may be in chunk or model_extra)
-                    if hasattr(chunk, 'citations') and chunk.citations:
+                    if hasattr(chunk, "citations") and chunk.citations:
                         citations = chunk.citations
-                    elif hasattr(chunk, 'model_extra') and chunk.model_extra.get('citations'):
-                        citations = chunk.model_extra['citations']
+                    elif hasattr(chunk, "model_extra") and chunk.model_extra.get(
+                        "citations"
+                    ):
+                        citations = chunk.model_extra["citations"]
 
                 # Send citations at the end
                 if citations:
@@ -3110,12 +3176,9 @@ async def perplexity_search(request: PerplexitySearchRequest):
                         "1. Title\n2. URL\n3. Brief description (1-2 sentences)\n\n"
                         "Format your response as a JSON array with objects containing "
                         "'title', 'url', and 'snippet' fields."
-                    )
+                    ),
                 },
-                {
-                    "role": "user",
-                    "content": f"Search query: {request.query}"
-                }
+                {"role": "user", "content": f"Search query: {request.query}"},
             ]
 
             response = await client.chat.completions.create(
@@ -3124,9 +3187,8 @@ async def perplexity_search(request: PerplexitySearchRequest):
             )
 
             content = response.choices[0].message.content
-            citations = (
-                getattr(response, 'citations', [])
-                or response.model_extra.get('citations', [])
+            citations = getattr(response, "citations", []) or response.model_extra.get(
+                "citations", []
             )
 
             # Try to parse JSON results from response
@@ -3134,30 +3196,39 @@ async def perplexity_search(request: PerplexitySearchRequest):
             try:
                 # Find JSON array in response
                 import re
-                json_match = re.search(r'\[[\s\S]*\]', content)
+
+                json_match = re.search(r"\[[\s\S]*\]", content)
                 if json_match:
                     parsed = json.loads(json_match.group())
-                    for item in parsed[:request.num_results]:
-                        results.append(PerplexitySearchResult(
-                            title=item.get("title", "Untitled"),
-                            url=item.get("url", ""),
-                            snippet=item.get("snippet", item.get("description", "")),
-                        ))
+                    for item in parsed[: request.num_results]:
+                        results.append(
+                            PerplexitySearchResult(
+                                title=item.get("title", "Untitled"),
+                                url=item.get("url", ""),
+                                snippet=item.get(
+                                    "snippet", item.get("description", "")
+                                ),
+                            )
+                        )
             except (json.JSONDecodeError, KeyError):
                 # Fall back to using citations if available
-                for citation in citations[:request.num_results]:
+                for citation in citations[: request.num_results]:
                     if isinstance(citation, str):
-                        results.append(PerplexitySearchResult(
-                            title=citation,
-                            url=citation,
-                            snippet="",
-                        ))
+                        results.append(
+                            PerplexitySearchResult(
+                                title=citation,
+                                url=citation,
+                                snippet="",
+                            )
+                        )
                     elif isinstance(citation, dict):
-                        results.append(PerplexitySearchResult(
-                            title=citation.get("title", "Untitled"),
-                            url=citation.get("url", ""),
-                            snippet=citation.get("snippet", ""),
-                        ))
+                        results.append(
+                            PerplexitySearchResult(
+                                title=citation.get("title", "Untitled"),
+                                url=citation.get("url", ""),
+                                snippet=citation.get("snippet", ""),
+                            )
+                        )
 
             logger.info(f"Perplexity search returned {len(results)} results")
             return {
@@ -3241,15 +3312,21 @@ async def perplexity_responses(request: PerplexityResponsesRequest):
             # Build web_search_options if any search filters are provided
             web_search_options = {}
             if request.search_domain_filter:
-                web_search_options["search_domain_filter"] = request.search_domain_filter
+                web_search_options["search_domain_filter"] = (
+                    request.search_domain_filter
+                )
             if request.search_recency_filter:
-                web_search_options["search_recency_filter"] = request.search_recency_filter
+                web_search_options["search_recency_filter"] = (
+                    request.search_recency_filter
+                )
             if request.search_after_date:
                 web_search_options["search_after_date"] = request.search_after_date
             if request.search_before_date:
                 web_search_options["search_before_date"] = request.search_before_date
             if request.search_language_filter:
-                web_search_options["search_language_filter"] = request.search_language_filter
+                web_search_options["search_language_filter"] = (
+                    request.search_language_filter
+                )
             if web_search_options:
                 payload["web_search_options"] = web_search_options
 
@@ -3291,10 +3368,12 @@ async def perplexity_responses(request: PerplexityResponsesRequest):
                                     event_type = line[6:].strip()
                                 elif line.startswith("data:"):
                                     event_data = line[5:].strip()
-                            logger.debug("SSE event: type=%s, data=%s", event_type, event_data)
+                            logger.debug(
+                                "SSE event: type=%s, data=%s", event_type, event_data
+                            )
 
-                            if event_type == 'error':
-                                yield {"event": "error", "data": event_data} 
+                            if event_type == "error":
+                                yield {"event": "error", "data": event_data}
 
                             if not event_data or event_data == "[DONE]":
                                 logger.debug("Skipping empty or DONE event")
@@ -3444,7 +3523,9 @@ async def deep_research_start(request: DeepResearchStartRequest):
     # Build the research prompt with context
     research_input = request.query
     if request.context:
-        research_input = f"Context:\n{request.context}\n\nResearch query: {request.query}"
+        research_input = (
+            f"Context:\n{request.context}\n\nResearch query: {request.query}"
+        )
 
     # Store task info - actual Google API call happens in /stream
     _deep_research_tasks[task_id] = {
@@ -3516,7 +3597,7 @@ async def deep_research_status(task_id: str):
 
 
 @app.get("/api/deep-research/stream/{task_id}")
-async def deep_research_stream(task_id: str):
+async def deep_research_stream(task_id: str, request: Request):
     """
     Stream deep research progress and results via SSE.
 
@@ -3536,8 +3617,10 @@ async def deep_research_stream(task_id: str):
     task = _deep_research_tasks.get(task_id)
 
     if not task:
+
         async def error_generator():
             yield {"event": "error", "data": "Research task not found"}
+
         return EventSourceResponse(error_generator())
 
     async def generate():
@@ -3557,17 +3640,12 @@ async def deep_research_stream(task_id: str):
                 # Resume existing interaction
                 yield {"event": "status", "data": "Resuming research..."}
                 stream = client.interactions.get(
-                    google_id,
-                    stream=True,
-                    last_event_id=last_event_id
+                    google_id, stream=True, last_event_id=last_event_id
                 )
             elif google_id:
                 # Reconnect to existing interaction without last_event_id
                 yield {"event": "status", "data": "Reconnecting to research..."}
-                stream = client.interactions.get(
-                    google_id,
-                    stream=True
-                )
+                stream = client.interactions.get(google_id, stream=True)
             else:
                 # Start new research with streaming enabled
                 yield {"event": "status", "data": "Starting deep research agent..."}
@@ -3580,8 +3658,8 @@ async def deep_research_stream(task_id: str):
                     stream=True,
                     agent_config={
                         "type": "deep-research",
-                        "thinking_summaries": "auto"
-                    }
+                        "thinking_summaries": "auto",
+                    },
                 )
 
             # Process streaming events
@@ -3597,8 +3675,7 @@ async def deep_research_stream(task_id: str):
                 try:
                     # Run the synchronous next() in a thread pool to not block
                     chunk = await loop.run_in_executor(
-                        None,
-                        lambda: next(stream_iter, None)
+                        None, lambda: next(stream_iter, None)
                     )
 
                     if chunk is None:
@@ -3622,11 +3699,18 @@ async def deep_research_stream(task_id: str):
 
                     if event_type == "interaction.start":
                         # Capture the Google interaction ID for resume
-                        if hasattr(chunk, "interaction") and hasattr(chunk.interaction, "id"):
+                        if hasattr(chunk, "interaction") and hasattr(
+                            chunk.interaction, "id"
+                        ):
                             task["google_interaction_id"] = chunk.interaction.id
-                            logger.info(f"Google interaction started: {chunk.interaction.id}")
+                            logger.info(
+                                f"Google interaction started: {chunk.interaction.id}"
+                            )
                             # Send to frontend for localStorage storage (browser resume)
-                            yield {"event": "interaction_id", "data": chunk.interaction.id}
+                            yield {
+                                "event": "interaction_id",
+                                "data": chunk.interaction.id,
+                            }
                         yield {"event": "status", "data": "Research in progress..."}
 
                     elif event_type == "content.delta":
@@ -3644,17 +3728,24 @@ async def deep_research_stream(task_id: str):
                             elif delta_type == "thought_summary":
                                 # Thinking summary
                                 thinking_text = None
-                                if hasattr(delta, "content") and hasattr(delta.content, "text"):
+                                if hasattr(delta, "content") and hasattr(
+                                    delta.content, "text"
+                                ):
                                     thinking_text = delta.content.text
                                 elif hasattr(delta, "text"):
                                     thinking_text = delta.text
 
                                 if thinking_text:
-                                    task["thinking_history"].append({
-                                        "timestamp": time.time(),
-                                        "summary": thinking_text[:500],
-                                    })
-                                    yield {"event": "thinking", "data": thinking_text[:500]}
+                                    task["thinking_history"].append(
+                                        {
+                                            "timestamp": time.time(),
+                                            "summary": thinking_text[:500],
+                                        }
+                                    )
+                                    yield {
+                                        "event": "thinking",
+                                        "data": thinking_text[:500],
+                                    }
 
                             elif delta_type is None and hasattr(delta, "text"):
                                 # Fallback: delta with text but no type
@@ -3668,12 +3759,16 @@ async def deep_research_stream(task_id: str):
                                 logger.warning(f"Unknown delta type: {delta_type}")
 
                     elif event_type == "interaction.complete":
-                        logger.info("Deep research completed via interaction.complete event")
+                        logger.info(
+                            "Deep research completed via interaction.complete event"
+                        )
                         break
 
                     elif event_type == "interaction.done":
                         # Alternative completion event
-                        logger.info("Deep research completed via interaction.done event")
+                        logger.info(
+                            "Deep research completed via interaction.done event"
+                        )
                         break
 
                     elif event_type == "error" or event_type == "interaction.failed":
@@ -3692,14 +3787,24 @@ async def deep_research_stream(task_id: str):
                 except Exception as stream_err:
                     error_str = str(stream_err)
                     # Check if it's a timeout - research may still be running
-                    if "timeout" in error_str.lower() or "deadline" in error_str.lower():
-                        logger.warning(f"Stream timeout, will check for completion: {stream_err}")
-                        yield {"event": "status", "data": "Connection timed out, checking research status..."}
+                    if (
+                        "timeout" in error_str.lower()
+                        or "deadline" in error_str.lower()
+                    ):
+                        logger.warning(
+                            f"Stream timeout, will check for completion: {stream_err}"
+                        )
+                        yield {
+                            "event": "status",
+                            "data": "Connection timed out, checking research status...",
+                        }
                         break
                     else:
                         raise
 
-            logger.info(f"Stream processing complete. Total events: {event_count}, content length: {len(full_content)}")
+            logger.info(
+                f"Stream processing complete. Total events: {event_count}, content length: {len(full_content)}"
+            )
 
             # Fetch final results - poll if research is still in progress
             google_id = task.get("google_interaction_id")
@@ -3710,12 +3815,13 @@ async def deep_research_stream(task_id: str):
                 while poll_attempt < max_poll_attempts:
                     try:
                         interaction = await loop.run_in_executor(
-                            None,
-                            lambda: client.interactions.get(google_id)
+                            None, lambda: client.interactions.get(google_id)
                         )
 
                         status = getattr(interaction, "status", None)
-                        logger.info(f"Interaction status: {status} (poll attempt {poll_attempt})")
+                        logger.info(
+                            f"Interaction status: {status} (poll attempt {poll_attempt})"
+                        )
 
                         if status == "completed":
                             # Get final output if we missed content during streaming
@@ -3724,14 +3830,24 @@ async def deep_research_stream(task_id: str):
                                 if hasattr(final_output, "text") and final_output.text:
                                     # Only send if we don't already have this content
                                     new_content = final_output.text
-                                    if not full_content or len(new_content) > len(full_content):
+                                    if not full_content or len(new_content) > len(
+                                        full_content
+                                    ):
                                         if full_content:
                                             # Send only the new portion
-                                            additional = new_content[len(full_content):]
+                                            additional = new_content[
+                                                len(full_content) :
+                                            ]
                                             if additional:
-                                                yield {"event": "content", "data": additional}
+                                                yield {
+                                                    "event": "content",
+                                                    "data": additional,
+                                                }
                                         else:
-                                            yield {"event": "content", "data": new_content}
+                                            yield {
+                                                "event": "content",
+                                                "data": new_content,
+                                            }
                                         full_content = new_content
 
                             # Extract sources if available
@@ -3750,7 +3866,10 @@ async def deep_research_stream(task_id: str):
 
                                 if sources:
                                     task["sources"] = sources
-                                    yield {"event": "sources", "data": json.dumps(sources)}
+                                    yield {
+                                        "event": "sources",
+                                        "data": json.dumps(sources),
+                                    }
 
                             break  # Done!
 
@@ -3762,11 +3881,17 @@ async def deep_research_stream(task_id: str):
                             # Still running, wait and poll again
                             poll_attempt += 1
                             if poll_attempt < max_poll_attempts:
-                                yield {"event": "status", "data": f"Research still in progress... (checking {poll_attempt}/{max_poll_attempts})"}
+                                yield {
+                                    "event": "status",
+                                    "data": f"Research still in progress... (checking {poll_attempt}/{max_poll_attempts})",
+                                }
                                 await asyncio.sleep(10)
                             else:
                                 # Max polls reached, let user know they can reconnect
-                                yield {"event": "status", "data": "Research is taking longer than expected. You can refresh to check again later."}
+                                yield {
+                                    "event": "status",
+                                    "data": "Research is taking longer than expected. You can refresh to check again later.",
+                                }
                                 break
                         else:
                             # Unknown status
@@ -3787,6 +3912,28 @@ async def deep_research_stream(task_id: str):
             task["result"] = full_content
             task["status"] = "completed"
             task["completed_at"] = time.time()
+
+            # Save as artifact if user is authenticated
+            uid = getattr(request.state, "uid", None)
+            if uid and full_content:
+                store = get_artifact_store()
+                if store:
+                    try:
+                        store.save_artifact(
+                            uid,
+                            artifact_type="deep_research",
+                            title=f"Research: {task.get('query', 'Untitled')[:100]}",
+                            content=full_content,
+                            metadata={
+                                "query": task.get("query"),
+                                "sources": task.get("sources", []),
+                                "model": DEEP_RESEARCH_AGENT,
+                            },
+                        )
+                    except Exception as artifact_err:
+                        logger.warning(
+                            f"Failed to save research artifact: {artifact_err}"
+                        )
 
             yield {"event": "done", "data": ""}
 
@@ -3820,10 +3967,7 @@ async def deep_research_resume(google_interaction_id: str, api_key: str):
 
             # Try to get the interaction with streaming to resume
             try:
-                stream = client.interactions.get(
-                    google_interaction_id,
-                    stream=True
-                )
+                stream = client.interactions.get(google_interaction_id, stream=True)
             except Exception as e:
                 # If streaming fails, try to get final result
                 logger.warning(f"Streaming resume failed, fetching final result: {e}")
@@ -3861,7 +4005,10 @@ async def deep_research_resume(google_interaction_id: str, api_key: str):
                     return
 
                 else:
-                    yield {"event": "error", "data": "Unable to resume - research may still be initializing"}
+                    yield {
+                        "event": "error",
+                        "data": "Unable to resume - research may still be initializing",
+                    }
                     return
 
             full_content = ""
@@ -3882,10 +4029,15 @@ async def deep_research_resume(google_interaction_id: str, api_key: str):
                                 yield {"event": "content", "data": text}
 
                         elif delta_type == "thought_summary":
-                            if hasattr(delta, "content") and hasattr(delta.content, "text"):
+                            if hasattr(delta, "content") and hasattr(
+                                delta.content, "text"
+                            ):
                                 thinking_text = delta.content.text
                                 if thinking_text:
-                                    yield {"event": "thinking", "data": thinking_text[:500]}
+                                    yield {
+                                        "event": "thinking",
+                                        "data": thinking_text[:500],
+                                    }
 
                 elif event_type == "interaction.complete":
                     break
@@ -5207,3 +5359,40 @@ async def signaling_status():
             topic: len(peers) for topic, peers in signaling_manager.topics.items()
         },
     }
+
+
+# =============================================================================
+# Artifacts API (requires Firebase Auth)
+# =============================================================================
+
+
+@app.get("/api/artifacts")
+async def list_artifacts(request: Request, type: str | None = None):
+    """List the authenticated user's artifacts."""
+    uid = getattr(request.state, "uid", None)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    store = get_artifact_store()
+    if not store:
+        raise HTTPException(status_code=503, detail="Artifact store not available")
+
+    return store.list_artifacts(uid, type_filter=type)
+
+
+@app.get("/api/artifacts/{artifact_id}")
+async def get_artifact(artifact_id: str, request: Request):
+    """Get a single artifact by ID for the authenticated user."""
+    uid = getattr(request.state, "uid", None)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    store = get_artifact_store()
+    if not store:
+        raise HTTPException(status_code=503, detail="Artifact store not available")
+
+    artifact = store.get_artifact(uid, artifact_id)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    return artifact

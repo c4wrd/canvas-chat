@@ -587,18 +587,30 @@ class ModalManager {
         // Load sessions list
         const sessions = await storage.listSessions();
         const listEl = document.getElementById('session-list');
+        const hasRemoteSync = !!this.app.firestoreSync;
 
         if (sessions.length === 0) {
             listEl.innerHTML = '<p style="color: var(--text-muted); text-align: center;">No saved sessions</p>';
             return;
         }
 
-        listEl.innerHTML = sessions
+        // Build sync status bar if signed in
+        const syncBarHtml = hasRemoteSync
+            ? `<div class="sync-status-bar connected">
+                <span class="sync-dot"></span>
+                <span>Syncing to cloud</span>
+               </div>`
+            : '';
+
+        listEl.innerHTML = syncBarHtml + sessions
             .map(
                 (session) => `
             <div class="session-item" data-session-id="${session.id}">
                 <div>
-                    <div class="session-item-name">${session.name || 'Untitled Session'}</div>
+                    <div class="session-item-name">
+                        ${session.name || 'Untitled Session'}
+                        ${hasRemoteSync ? '<span class="session-item-sync synced"><span class="cloud-icon">&#9729;</span></span>' : ''}
+                    </div>
                     <div class="session-item-date">${new Date(session.updated_at).toLocaleDateString()}</div>
                 </div>
                 <button class="session-item-delete" data-delete-id="${session.id}" title="Delete">🗑️</button>

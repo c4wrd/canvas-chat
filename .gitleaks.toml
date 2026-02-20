@@ -1,0 +1,6 @@
+[allowlist]
+  # Firebase web config values are public project identifiers, not secrets.
+  # See: https://firebase.google.com/docs/web/setup#config-object
+  paths = [
+    "src/canvas_chat/static/js/firebase-config.js",
+  ]

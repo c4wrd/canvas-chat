@@ -2,6 +2,7 @@
  * Chat module - LLM communication with SSE streaming
  */
 
+import { authManager } from './auth.js';
 import { storage } from './storage.js';
 import { apiUrl } from './utils.js';
 import { readSSEStream, normalizeText } from './sse.js';
@@ -115,6 +116,19 @@ class Chat {
     constructor() {
         this.currentModel = null;
         this.models = [];
+    }
+
+    /**
+     * Build request headers, including auth token if signed in.
+     * @returns {Promise<Object>} Headers object
+     */
+    async _buildHeaders() {
+        const headers = { 'Content-Type': 'application/json' };
+        const token = await authManager.getIdToken();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        return headers;
     }
 
     /**
@@ -357,11 +371,10 @@ class Chat {
         }
 
         try {
+            const headers = await this._buildHeaders();
             const response = await fetch(apiUrl('/api/chat'), {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers,
                 body: JSON.stringify(requestBody),
             });
 
@@ -453,11 +466,10 @@ class Chat {
                 requestBody.base_url = baseUrl;
             }
 
+            const headers = await this._buildHeaders();
             const response = await fetch(apiUrl('/api/summarize'), {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers,
                 body: JSON.stringify(requestBody),
             });
 

@@ -8,6 +8,7 @@
  * Extends FeaturePlugin to integrate with the plugin architecture.
  */
 
+import { authManager } from '../auth.js';
 import { NodeType, EdgeType, createNode, createEdge } from '../graph-types.js';
 import { storage } from '../storage.js';
 import { readSSEStream } from '../sse.js';
@@ -351,9 +352,13 @@ class DeepResearchFeature extends FeaturePlugin {
                 this.canvas.updateNodeContent(nodeId, `**Deep Research:** ${query}\n\n*Initiating research task...*`, true);
 
                 // Call start endpoint
+                const startHeaders = { 'Content-Type': 'application/json' };
+                const idToken = await authManager.getIdToken();
+                if (idToken) startHeaders['Authorization'] = `Bearer ${idToken}`;
+
                 const startResponse = await fetch(apiUrl('/api/deep-research/start'), {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: startHeaders,
                     body: JSON.stringify({
                         query,
                         context: context || null,
@@ -382,9 +387,14 @@ class DeepResearchFeature extends FeaturePlugin {
 
             this.canvas.updateNodeContent(nodeId, `**Deep Research:** ${query}\n\n*Connecting to research stream...*`, true);
 
-            // Connect to SSE stream
+            // Connect to SSE stream (with auth header for artifact saving)
+            const streamHeaders = {};
+            const streamToken = await authManager.getIdToken();
+            if (streamToken) streamHeaders['Authorization'] = `Bearer ${streamToken}`;
+
             const streamResponse = await fetch(apiUrl(`/api/deep-research/stream/${interactionId}`), {
                 method: 'GET',
+                headers: streamHeaders,
                 signal: abortController.signal,
             });
 
@@ -803,8 +813,13 @@ class DeepResearchFeature extends FeaturePlugin {
         });
 
         try {
+            const resumeHeaders = {};
+            const resumeToken = await authManager.getIdToken();
+            if (resumeToken) resumeHeaders['Authorization'] = `Bearer ${resumeToken}`;
+
             const streamResponse = await fetch(apiUrl(`/api/deep-research/stream/${taskId}`), {
                 method: 'GET',
+                headers: resumeHeaders,
                 signal: abortController.signal,
             });
 
