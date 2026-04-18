@@ -125,7 +125,14 @@ class App {
         this.chatInput = document.getElementById('chat-input');
         this.sendBtn = document.getElementById('send-btn');
         this.modelPicker = document.getElementById('model-picker');
-        this.reasoningPicker = document.getElementById('reasoning-picker');
+        this.thinkingToggleBtn = document.getElementById('thinking-toggle-btn');
+        this.thinkingMenu = document.getElementById('thinking-menu');
+        this.thinkingEnabledCheckbox = document.getElementById('thinking-enabled-checkbox');
+        this.thinkingEffortRow = document.getElementById('thinking-effort-row');
+        this.thinkingUnsupported = document.getElementById('thinking-unsupported');
+        this.thinkingToggleLabel = document.getElementById('thinking-toggle-label');
+        /** @type {Record<string, {supports_reasoning?: boolean, supports_xhigh_reasoning?: boolean, supports_vision?: boolean}>} */
+        this.modelCapabilitiesMap = {};
         this.temperatureToggleBtn = document.getElementById('temperature-toggle-btn');
         this.temperatureMenu = document.getElementById('temperature-menu');
         this.temperatureSlider = document.getElementById('temperature-slider');
@@ -207,8 +214,8 @@ class App {
             this.hideAdminRestrictedUI();
         }
 
-        // Initialize reasoning picker
-        this.initReasoningPicker();
+        // Initialize thinking controls
+        this.initThinkingControls();
 
         // Initialize temperature slider
         this.initTemperatureSlider();
@@ -491,38 +498,104 @@ class App {
     }
 
     /**
-     * Initialize the reasoning effort picker
-     * Loads saved value from storage and sets up change listener
+     *
      */
-    initReasoningPicker() {
-        if (!this.reasoningPicker) return;
+    initThinkingControls() {
+        const btn = this.thinkingToggleBtn;
+        const menu = this.thinkingMenu;
+        const checkbox = /** @type {HTMLInputElement|null} */ (this.thinkingEnabledCheckbox);
+        const effortRow = this.thinkingEffortRow;
+        const label = this.thinkingToggleLabel;
+        if (!btn || !menu || !checkbox || !effortRow || !label) return;
 
-        // Load saved value
-        const savedValue = storage.getReasoningEffort();
-        this.reasoningPicker.value = savedValue;
+        checkbox.checked = storage.getThinkingEnabled();
+        this._syncThinkingEffortButtons(storage.getThinkingEffort());
+        this._syncThinkingUI();
 
-        // Update visual state
-        this.updateReasoningPickerState();
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = menu.style.display !== 'none';
+            menu.style.display = isOpen ? 'none' : 'block';
+        });
 
-        // Listen for changes
-        this.reasoningPicker.addEventListener('change', () => {
-            storage.setReasoningEffort(this.reasoningPicker.value);
-            this.updateReasoningPickerState();
+        checkbox.addEventListener('change', () => {
+            storage.setThinkingEnabled(checkbox.checked);
+            this._syncThinkingUI();
+        });
+
+        effortRow.querySelectorAll('.thinking-effort-btn').forEach((el) => {
+            const effortBtn = /** @type {HTMLElement} */ (el);
+            effortBtn.addEventListener('click', () => {
+                const val = effortBtn.dataset.value || 'medium';
+                storage.setThinkingEffort(val);
+                this._syncThinkingEffortButtons(val);
+                this._syncThinkingUI();
+            });
+        });
+
+        document.addEventListener('click', (e) => {
+            const target = /** @type {Node} */ (e.target);
+            if (!btn.contains(target) && !menu.contains(target)) {
+                menu.style.display = 'none';
+            }
         });
     }
 
     /**
-     * Update the visual state of the reasoning picker
-     * Adds 'active' class when reasoning is enabled
+     *
      */
-    updateReasoningPickerState() {
-        if (!this.reasoningPicker) return;
+    _syncThinkingUI() {
+        const checkbox = /** @type {HTMLInputElement|null} */ (this.thinkingEnabledCheckbox);
+        const btn = this.thinkingToggleBtn;
+        const effortRow = this.thinkingEffortRow;
+        const label = this.thinkingToggleLabel;
+        const unsupported = this.thinkingUnsupported;
+        if (!checkbox || !btn || !effortRow || !label) return;
 
-        if (this.reasoningPicker.value !== 'none') {
-            this.reasoningPicker.classList.add('active');
+        const enabled = checkbox.checked;
+        const supported = !unsupported || unsupported.style.display === 'none';
+        effortRow.style.display = enabled && supported ? 'flex' : 'none';
+        if (enabled && supported) {
+            btn.classList.add('active');
+            label.textContent = storage.getThinkingEffort();
         } else {
-            this.reasoningPicker.classList.remove('active');
+            btn.classList.remove('active');
+            label.textContent = 'Think';
         }
+    }
+
+    /** @param {string} activeValue */
+    _syncThinkingEffortButtons(activeValue) {
+        const effortRow = this.thinkingEffortRow;
+        if (!effortRow) return;
+        effortRow.querySelectorAll('.thinking-effort-btn').forEach((el) => {
+            const b = /** @type {HTMLElement} */ (el);
+            b.classList.toggle('active', b.dataset.value === activeValue);
+        });
+    }
+
+    /** @param {{ supports_reasoning?: boolean, supports_xhigh_reasoning?: boolean } | null} capabilities */
+    updateThinkingControls(capabilities) {
+        const checkbox = /** @type {HTMLInputElement|null} */ (this.thinkingEnabledCheckbox);
+        const effortRow = this.thinkingEffortRow;
+        const unsupported = this.thinkingUnsupported;
+        if (!this.thinkingToggleBtn || !checkbox || !effortRow || !unsupported) return;
+
+        const supportsReasoning = capabilities?.supports_reasoning ?? false;
+        const supportsXhigh = capabilities?.supports_xhigh_reasoning ?? false;
+
+        unsupported.style.display = supportsReasoning ? 'none' : 'block';
+        checkbox.disabled = !supportsReasoning;
+
+        const xhighBtn = /** @type {HTMLElement|null} */ (effortRow.querySelector('.thinking-xhigh-btn'));
+        if (xhighBtn) xhighBtn.style.display = supportsXhigh ? '' : 'none';
+
+        if (!supportsXhigh && storage.getThinkingEffort() === 'xhigh') {
+            storage.setThinkingEffort('high');
+            this._syncThinkingEffortButtons('high');
+        }
+
+        this._syncThinkingUI();
     }
 
     /**
@@ -858,6 +931,10 @@ class App {
                 this.modelPicker.value = savedModel;
             }
         }
+
+        this._buildCapabilitiesMap(allModels);
+        const currentModel = storage.getCurrentModel();
+        this.updateThinkingControls(this.modelCapabilitiesMap[currentModel] || null);
     }
 
     /**
@@ -897,6 +974,22 @@ class App {
             if (savedModel && allModels.find((m) => m.id === savedModel)) {
                 this.modelPicker.value = savedModel;
             }
+        }
+
+        this._buildCapabilitiesMap(allModels);
+        const currentModel = storage.getCurrentModel();
+        this.updateThinkingControls(this.modelCapabilitiesMap[currentModel] || null);
+    }
+
+    /** @param {Array<{id: string, supports_reasoning?: boolean, supports_xhigh_reasoning?: boolean, supports_vision?: boolean}>} models */
+    _buildCapabilitiesMap(models) {
+        this.modelCapabilitiesMap = {};
+        for (const m of models) {
+            this.modelCapabilitiesMap[m.id] = {
+                supports_reasoning: m.supports_reasoning,
+                supports_xhigh_reasoning: m.supports_xhigh_reasoning,
+                supports_vision: m.supports_vision,
+            };
         }
     }
 
@@ -1179,7 +1272,10 @@ class App {
 
         // Model picker
         this.modelPicker.addEventListener('change', () => {
-            storage.setCurrentModel(this.modelPicker.value);
+            const picker = /** @type {HTMLSelectElement} */ (this.modelPicker);
+            const modelId = picker ? picker.value : '';
+            storage.setCurrentModel(modelId);
+            this.updateThinkingControls(this.modelCapabilitiesMap[modelId] || null);
         });
 
         // Clear selection button

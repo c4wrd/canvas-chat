@@ -157,7 +157,9 @@ class ToolRegistry:
         return sorted(enabled, key=lambda t: t["priority"], reverse=True)
 
     @classmethod
-    def get_openai_tools(cls, tool_ids: list[str] | None = None) -> list[dict[str, Any]]:
+    def get_openai_tools(
+        cls, tool_ids: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         """Get tools in OpenAI/LiteLLM format.
 
         Args:
@@ -184,7 +186,9 @@ class ToolRegistry:
             return tools
 
     @classmethod
-    async def execute_tool(cls, tool_id: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def execute_tool(
+        cls, tool_id: str, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
         """Execute a tool with the given arguments.
 
         Args:
@@ -231,11 +235,13 @@ class ToolRegistry:
         for tool_config in cls._tools.values():
             instance = cls.get_instance(tool_config["id"])
             if instance:
-                tools_info.append({
-                    "id": tool_config["id"],
-                    "name": instance.get_name(),
-                    "description": instance.get_description(),
-                    "enabled": tool_config["enabled"],
-                    "priority": tool_config["priority"],
-                })
+                tools_info.append(
+                    {
+                        "id": tool_config["id"],
+                        "name": instance.get_name(),
+                        "description": instance.get_description(),
+                        "enabled": tool_config["enabled"],
+                        "priority": tool_config["priority"],
+                    }
+                )
         return sorted(tools_info, key=lambda t: t["priority"], reverse=True)

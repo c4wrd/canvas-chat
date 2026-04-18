@@ -2,7 +2,8 @@
 
 import asyncio
 import os
-from typing import Any, AsyncIterator, cast
+from collections.abc import AsyncIterator
+from typing import Any, cast
 
 # Patch BEFORE importing the client
 import perplexity._streaming as streaming_module
@@ -48,7 +49,7 @@ async def _patched_stream(self) -> AsyncIterator[Any]:
 streaming_module.AsyncStream._AsyncStream__stream__ = _patched_stream  # type: ignore
 
 # Now import the client (after patching)
-from perplexity import AsyncPerplexity
+from perplexity import AsyncPerplexity  # noqa: E402
 
 
 async def fast_search(query: str):

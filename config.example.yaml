@@ -34,6 +34,11 @@
 
 models:
     # OpenAI models
+    - id: 'openai/gpt-5.4'
+      name: 'GPT-5.4'
+      apiKeyEnvVar: 'OPENAI_API_KEY'
+      contextWindow: 128000
+
     - id: 'openai/gpt-4o'
       name: 'GPT-4o'
       apiKeyEnvVar: 'OPENAI_API_KEY'
@@ -50,6 +55,21 @@ models:
       contextWindow: 200000
 
     # Anthropic models
+    - id: 'anthropic/claude-opus-4-7'
+      name: 'Claude Opus 4.7'
+      apiKeyEnvVar: 'ANTHROPIC_API_KEY'
+      contextWindow: 200000
+
+    - id: 'anthropic/claude-opus-4-6'
+      name: 'Claude Opus 4.6'
+      apiKeyEnvVar: 'ANTHROPIC_API_KEY'
+      contextWindow: 200000
+
+    - id: 'anthropic/claude-sonnet-4-6'
+      name: 'Claude Sonnet 4.6'
+      apiKeyEnvVar: 'ANTHROPIC_API_KEY'
+      contextWindow: 200000
+
     - id: 'anthropic/claude-sonnet-4-20250514'
       name: 'Claude Sonnet 4'
       apiKeyEnvVar: 'ANTHROPIC_API_KEY'
@@ -61,6 +81,26 @@ models:
       contextWindow: 200000
 
     # Google models
+    - id: 'gemini/gemini-3.1-pro-preview'
+      name: 'Gemini 3.1 Pro Preview'
+      apiKeyEnvVar: 'GEMINI_API_KEY'
+      contextWindow: 1048576
+
+    - id: 'gemini/gemini-2.5-pro'
+      name: 'Gemini 2.5 Pro'
+      apiKeyEnvVar: 'GEMINI_API_KEY'
+      contextWindow: 1048576
+
+    - id: 'gemini/gemini-2.5-flash'
+      name: 'Gemini 2.5 Flash'
+      apiKeyEnvVar: 'GEMINI_API_KEY'
+      contextWindow: 1048576
+
+    - id: 'gemini/gemini-2.0-flash'
+      name: 'Gemini 2.0 Flash'
+      apiKeyEnvVar: 'GEMINI_API_KEY'
+      contextWindow: 1048576
+
     - id: 'gemini/gemini-1.5-pro'
       name: 'Gemini 1.5 Pro'
       apiKeyEnvVar: 'GEMINI_API_KEY'

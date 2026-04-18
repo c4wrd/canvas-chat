@@ -70,7 +70,8 @@ from canvas_chat.tool_registry import ToolRegistry
 from canvas_chat.url_fetch_registry import UrlFetchRegistry
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+_log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
+logging.basicConfig(level=_log_level)
 logger = logging.getLogger(__name__)
 
 # Configure litellm
@@ -300,7 +301,7 @@ class ChatRequest(BaseModel):
     base_url: str | None = None
     temperature: float = 0.7
     max_tokens: int | None = None
-    reasoning_effort: str | None = None  # "none", "low", "medium", "high"
+    reasoning_effort: str | None = None  # "none", "low", "medium", "high", "xhigh"
     # Tool calling options
     enable_tools: bool = False
     tools: list[str] | None = None  # Specific tool IDs, or None for all enabled
@@ -355,6 +356,9 @@ class ModelInfo(BaseModel):
     name: str
     provider: str
     context_window: int
+    supports_reasoning: bool = False
+    supports_xhigh_reasoning: bool = False
+    supports_vision: bool = False
 
 
 class ExaSearchRequest(BaseModel):
@@ -565,22 +569,34 @@ class CommitteeRequest(BaseModel):
 MODEL_REGISTRY: list[dict] = [
     # OpenAI
     {
+        "id": "openai/gpt-5.4",
+        "name": "GPT-5.4",
+        "provider": "OpenAI",
+        "context_window": 1050000,
+        "supports_reasoning": True,
+        "supports_xhigh_reasoning": True,
+        "supports_vision": True,
+    },
+    {
         "id": "openai/gpt-4o",
         "name": "GPT-4o",
         "provider": "OpenAI",
         "context_window": 128000,
+        "supports_vision": True,
     },
     {
         "id": "openai/gpt-4o-mini",
         "name": "GPT-4o Mini",
         "provider": "OpenAI",
         "context_window": 128000,
+        "supports_vision": True,
     },
     {
         "id": "openai/gpt-4-turbo",
         "name": "GPT-4 Turbo",
         "provider": "OpenAI",
         "context_window": 128000,
+        "supports_vision": True,
     },
     {
         "id": "openai/gpt-3.5-turbo",
@@ -590,65 +606,160 @@ MODEL_REGISTRY: list[dict] = [
     },
     # Anthropic
     {
+        "id": "anthropic/claude-opus-4-7",
+        "name": "Claude Opus 4.7",
+        "provider": "Anthropic",
+        "context_window": 1000000,
+        "supports_reasoning": True,
+        "supports_xhigh_reasoning": True,
+        "supports_vision": True,
+    },
+    {
+        "id": "anthropic/claude-opus-4-6",
+        "name": "Claude Opus 4.6",
+        "provider": "Anthropic",
+        "context_window": 1000000,
+        "supports_reasoning": True,
+        "supports_vision": True,
+    },
+    {
+        "id": "anthropic/claude-sonnet-4-6",
+        "name": "Claude Sonnet 4.6",
+        "provider": "Anthropic",
+        "context_window": 1000000,
+        "supports_reasoning": True,
+        "supports_vision": True,
+    },
+    {
         "id": "anthropic/claude-sonnet-4-5-20250929",
         "name": "Claude Sonnet 4.5",
         "provider": "Anthropic",
         "context_window": 200000,
+        "supports_reasoning": True,
+        "supports_vision": True,
     },
     {
         "id": "anthropic/claude-opus-4-5-20251101",
         "name": "Claude Opus 4.5",
         "provider": "Anthropic",
         "context_window": 200000,
+        "supports_reasoning": True,
+        "supports_vision": True,
     },
     {
         "id": "anthropic/claude-opus-4-20250514",
         "name": "Claude Opus 4",
         "provider": "Anthropic",
         "context_window": 200000,
+        "supports_reasoning": True,
+        "supports_vision": True,
     },
     {
         "id": "anthropic/claude-sonnet-4-20250514",
         "name": "Claude Sonnet 4",
         "provider": "Anthropic",
         "context_window": 200000,
+        "supports_reasoning": True,
+        "supports_vision": True,
     },
     {
         "id": "anthropic/claude-3-7-sonnet-20250219",
         "name": "Claude 3.7 Sonnet",
         "provider": "Anthropic",
         "context_window": 200000,
+        "supports_reasoning": True,
+        "supports_vision": True,
     },
     {
         "id": "anthropic/claude-3-5-sonnet-20241022",
         "name": "Claude 3.5 Sonnet",
         "provider": "Anthropic",
         "context_window": 200000,
+        "supports_vision": True,
     },
     {
         "id": "anthropic/claude-3-5-haiku-20241022",
         "name": "Claude 3.5 Haiku",
         "provider": "Anthropic",
         "context_window": 200000,
+        "supports_vision": True,
     },
     {
         "id": "anthropic/claude-3-opus-20240229",
         "name": "Claude 3 Opus",
         "provider": "Anthropic",
         "context_window": 200000,
+        "supports_vision": True,
     },
     # Google
+    {
+        "id": "gemini/gemini-3.1-pro-preview",
+        "name": "Gemini 3.1 Pro Preview",
+        "provider": "Google",
+        "context_window": 1048576,
+        "supports_reasoning": True,
+        "supports_vision": True,
+    },
+    {
+        "id": "gemini/gemini-3.1-flash-lite-preview",
+        "name": "Gemini 3.1 Flash Lite Preview",
+        "provider": "Google",
+        "context_window": 1048576,
+        "supports_reasoning": True,
+        "supports_vision": True,
+    },
+    {
+        "id": "gemini/gemini-3-flash-preview",
+        "name": "Gemini 3 Flash Preview",
+        "provider": "Google",
+        "context_window": 1048576,
+        "supports_reasoning": True,
+        "supports_vision": True,
+    },
+    {
+        "id": "gemini/gemini-2.5-pro",
+        "name": "Gemini 2.5 Pro",
+        "provider": "Google",
+        "context_window": 1048576,
+        "supports_reasoning": True,
+        "supports_vision": True,
+    },
+    {
+        "id": "gemini/gemini-2.5-flash",
+        "name": "Gemini 2.5 Flash",
+        "provider": "Google",
+        "context_window": 1048576,
+        "supports_reasoning": True,
+        "supports_vision": True,
+    },
+    {
+        "id": "gemini/gemini-2.5-flash-lite",
+        "name": "Gemini 2.5 Flash Lite",
+        "provider": "Google",
+        "context_window": 1048576,
+        "supports_reasoning": True,
+        "supports_vision": True,
+    },
+    {
+        "id": "gemini/gemini-2.0-flash",
+        "name": "Gemini 2.0 Flash",
+        "provider": "Google",
+        "context_window": 1048576,
+        "supports_vision": True,
+    },
     {
         "id": "gemini/gemini-1.5-pro",
         "name": "Gemini 1.5 Pro",
         "provider": "Google",
         "context_window": 2000000,
+        "supports_vision": True,
     },
     {
         "id": "gemini/gemini-1.5-flash",
         "name": "Gemini 1.5 Flash",
         "provider": "Google",
         "context_window": 1000000,
+        "supports_vision": True,
     },
     # Groq
     {
@@ -913,17 +1024,25 @@ PROVIDER_ENDPOINTS = {
 
 # Context windows for known models (used as fallback)
 KNOWN_CONTEXT_WINDOWS = {
+    # More-specific patterns first (dict iteration order preserved in Python 3.7+)
+    "gpt-5": 1050000,
     "gpt-4o": 128000,
     "gpt-4o-mini": 128000,
     "gpt-4-turbo": 128000,
     "gpt-4": 8192,
     "gpt-3.5-turbo": 16385,
+    "claude-opus-4-7": 1000000,
+    "claude-opus-4-6": 1000000,
+    "claude-sonnet-4-6": 1000000,
     "claude-3": 200000,
     "claude-3.5": 200000,
     "claude-sonnet-4": 200000,
     "claude-opus-4": 200000,
+    "gemini-3": 1048576,
+    "gemini-2.5": 1048576,
+    "gemini-2.0": 1048576,
+    "gemini-2": 1048576,
     "gemini-1.5": 2000000,
-    "gemini-2": 1000000,
     "llama": 128000,
     "mixtral": 32768,
 }
@@ -945,6 +1064,7 @@ def is_chat_model(model_id: str) -> bool:
     chat_patterns = [
         "gpt-3.5",
         "gpt-4",
+        "gpt-5",
         "gpt-oss",
         "chatgpt",
         "claude",
@@ -1115,52 +1235,90 @@ async def fetch_google_models(api_key: str) -> list[dict]:
 # Anthropic doesn't have a models list API, so we use a static list
 ANTHROPIC_MODELS = [
     {
+        "id": "anthropic/claude-opus-4-7",
+        "name": "Claude Opus 4.7",
+        "provider": "Anthropic",
+        "context_window": 1000000,
+        "supports_reasoning": True,
+        "supports_xhigh_reasoning": True,
+        "supports_vision": True,
+    },
+    {
+        "id": "anthropic/claude-opus-4-6",
+        "name": "Claude Opus 4.6",
+        "provider": "Anthropic",
+        "context_window": 1000000,
+        "supports_reasoning": True,
+        "supports_vision": True,
+    },
+    {
+        "id": "anthropic/claude-sonnet-4-6",
+        "name": "Claude Sonnet 4.6",
+        "provider": "Anthropic",
+        "context_window": 1000000,
+        "supports_reasoning": True,
+        "supports_vision": True,
+    },
+    {
         "id": "anthropic/claude-sonnet-4-5-20250929",
         "name": "Claude Sonnet 4.5",
         "provider": "Anthropic",
         "context_window": 200000,
+        "supports_reasoning": True,
+        "supports_vision": True,
     },
     {
         "id": "anthropic/claude-opus-4-5-20251101",
         "name": "Claude Opus 4.5",
         "provider": "Anthropic",
         "context_window": 200000,
+        "supports_reasoning": True,
+        "supports_vision": True,
     },
     {
         "id": "anthropic/claude-opus-4-20250514",
         "name": "Claude Opus 4",
         "provider": "Anthropic",
         "context_window": 200000,
+        "supports_reasoning": True,
+        "supports_vision": True,
     },
     {
         "id": "anthropic/claude-sonnet-4-20250514",
         "name": "Claude Sonnet 4",
         "provider": "Anthropic",
         "context_window": 200000,
+        "supports_reasoning": True,
+        "supports_vision": True,
     },
     {
         "id": "anthropic/claude-3-7-sonnet-20250219",
         "name": "Claude 3.7 Sonnet",
         "provider": "Anthropic",
         "context_window": 200000,
+        "supports_reasoning": True,
+        "supports_vision": True,
     },
     {
         "id": "anthropic/claude-3-5-sonnet-20241022",
         "name": "Claude 3.5 Sonnet",
         "provider": "Anthropic",
         "context_window": 200000,
+        "supports_vision": True,
     },
     {
         "id": "anthropic/claude-3-5-haiku-20241022",
         "name": "Claude 3.5 Haiku",
         "provider": "Anthropic",
         "context_window": 200000,
+        "supports_vision": True,
     },
     {
         "id": "anthropic/claude-3-opus-20240229",
         "name": "Claude 3 Opus",
         "provider": "Anthropic",
         "context_window": 200000,
+        "supports_vision": True,
     },
 ]
 
@@ -1171,6 +1329,32 @@ async def fetch_anthropic_models(api_key: str) -> list[dict]:
     if api_key and api_key.startswith("sk-ant-"):
         return ANTHROPIC_MODELS
     return []
+
+
+def _enrich_model_capabilities(model: dict, registry_by_id: dict) -> None:
+    """Fill in capability flags for a dynamically-fetched model.
+
+    Priority: registry entry > LiteLLM model_cost > False.
+    Mutates model in place; only sets keys that are missing.
+    """
+    reg = registry_by_id.get(model["id"])
+    if reg:
+        model.setdefault("supports_reasoning", reg.get("supports_reasoning", False))
+        model.setdefault(
+            "supports_xhigh_reasoning", reg.get("supports_xhigh_reasoning", False)
+        )
+        model.setdefault("supports_vision", reg.get("supports_vision", False))
+        return
+
+    # Fall back to LiteLLM's model_cost table (bare model name without provider prefix)
+    bare_name = model["id"].split("/", 1)[-1]
+    litellm_info = litellm.model_cost.get(bare_name, {})
+    model.setdefault("supports_reasoning", bool(litellm_info.get("supports_reasoning")))
+    model.setdefault(
+        "supports_xhigh_reasoning",
+        bool(litellm_info.get("supports_xhigh_reasoning_effort")),
+    )
+    model.setdefault("supports_vision", bool(litellm_info.get("supports_vision")))
 
 
 # --- Routes ---
@@ -1217,7 +1401,9 @@ async def root():
                     const data = await res.json();
                     if (lastStartTime === null) {
                         lastStartTime = data.startTime;
-                        console.log('[LiveReload] Connected, server start time:', lastStartTime);
+                        console.log(
+                            '[LiveReload] Connected, server start time:',
+                            lastStartTime);
                     } else if (data.startTime !== lastStartTime) {
                         console.log('[LiveReload] Server restarted, reloading...');
                         location.reload();
@@ -1482,6 +1668,22 @@ async def get_provider_models(request: ProviderModelsRequest) -> list[ModelInfo]
         models = await fetch_github_copilot_models()
     else:
         raise HTTPException(status_code=400, detail=f"Unknown provider: {provider}")
+
+    # Enrich dynamically-fetched models with capability flags from registry / LiteLLM.
+    registry_by_id = {m["id"]: m for m in MODEL_REGISTRY}
+    for model in models:
+        _enrich_model_capabilities(model, registry_by_id)
+
+    # Merge in static registry models for this provider that the live API didn't return.
+    # This ensures preview/new models always appear even if the provider API omits them.
+    existing_ids = {m["id"] for m in models}
+    registry_provider = provider.capitalize()  # "google" -> "Google", etc.
+    for reg_model in MODEL_REGISTRY:
+        if (
+            reg_model["provider"] == registry_provider
+            and reg_model["id"] not in existing_ids
+        ):
+            models.insert(0, reg_model)
 
     return [ModelInfo(**m) for m in models]
 
@@ -3087,7 +3289,10 @@ async def perplexity_chat(request: PerplexityChatRequest):
                     messages.append(
                         {
                             "role": "system",
-                            "content": f"Use this context to help answer the question:\n\n{request.context}",
+                            "content": (
+                                "Use this context to help answer the question:"
+                                f"\n\n{request.context}"
+                            ),
                         }
                     )
 
@@ -3171,8 +3376,10 @@ async def perplexity_search(request: PerplexitySearchRequest):
                 {
                     "role": "system",
                     "content": (
-                        f"You are a search assistant. Find the top {request.num_results} "
-                        "most relevant web pages for the query. For each result, provide:\n"
+                        "You are a search assistant. "
+                        f"Find the top {request.num_results} "
+                        "most relevant web pages for the query. "
+                        "For each result, provide:\n"
                         "1. Title\n2. URL\n3. Brief description (1-2 sentences)\n\n"
                         "Format your response as a JSON array with objects containing "
                         "'title', 'url', and 'snippet' fields."
@@ -3803,7 +4010,8 @@ async def deep_research_stream(task_id: str, request: Request):
                         raise
 
             logger.info(
-                f"Stream processing complete. Total events: {event_count}, content length: {len(full_content)}"
+                f"Stream processing complete. Total events: {event_count}, "
+                f"content length: {len(full_content)}"
             )
 
             # Fetch final results - poll if research is still in progress
@@ -3820,7 +4028,8 @@ async def deep_research_stream(task_id: str, request: Request):
 
                         status = getattr(interaction, "status", None)
                         logger.info(
-                            f"Interaction status: {status} (poll attempt {poll_attempt})"
+                            f"Interaction status: {status}"
+                            f" (poll attempt {poll_attempt})"
                         )
 
                         if status == "completed":
@@ -3883,14 +4092,20 @@ async def deep_research_stream(task_id: str, request: Request):
                             if poll_attempt < max_poll_attempts:
                                 yield {
                                     "event": "status",
-                                    "data": f"Research still in progress... (checking {poll_attempt}/{max_poll_attempts})",
+                                    "data": (
+                                        "Research still in progress... "
+                                        f"(checking {poll_attempt}/{max_poll_attempts})"
+                                    ),
                                 }
                                 await asyncio.sleep(10)
                             else:
                                 # Max polls reached, let user know they can reconnect
                                 yield {
                                     "event": "status",
-                                    "data": "Research is taking longer than expected. You can refresh to check again later.",
+                                    "data": (
+                                        "Research is taking longer than expected. "
+                                        "You can refresh to check again later."
+                                    ),
                                 }
                                 break
                         else:

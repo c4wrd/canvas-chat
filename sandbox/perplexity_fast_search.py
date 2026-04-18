@@ -1,4 +1,4 @@
-"""Simple example of Perplexity AsyncPerplexity with responses.create for fast-search."""
+"""Perplexity AsyncPerplexity with responses.create for fast-search example."""
 
 import asyncio
 import logging
@@ -21,7 +21,7 @@ logging.getLogger("perplexity").setLevel(logging.DEBUG)
 
 logger = logging.getLogger(__name__)
 
-from perplexity import AsyncPerplexity
+from perplexity import AsyncPerplexity  # noqa: E402
 
 
 async def raw_sse_test(query: str):
@@ -71,7 +71,9 @@ async def fast_search(query: str):
     try:
         async with AsyncPerplexity(api_key=api_key) as client:
             logger.debug("Client created, calling responses.create...")
-            logger.debug("Request params: input=%r, preset='fast-search', stream=True", query)
+            logger.debug(
+                "Request params: input=%r, preset='fast-search', stream=True", query
+            )
 
             stream = await client.responses.create(
                 input=query,
@@ -88,7 +90,12 @@ async def fast_search(query: str):
             chunk_count = 0
             async for chunk in stream:
                 chunk_count += 1
-                logger.debug("Chunk #%d: type=%s, chunk=%r", chunk_count, getattr(chunk, 'type', None), chunk)
+                logger.debug(
+                    "Chunk #%d: type=%s, chunk=%r",
+                    chunk_count,
+                    getattr(chunk, "type", None),
+                    chunk,
+                )
                 print(f"[{chunk.type}]", end=" ", flush=True)
 
                 if chunk.type == "response.content.delta":
@@ -102,7 +109,9 @@ async def fast_search(query: str):
                     print("\n" + "-" * 40)
                     print("Done!")
                     # Print citations if available
-                    if hasattr(chunk, "response") and hasattr(chunk.response, "citations"):
+                    if hasattr(chunk, "response") and hasattr(
+                        chunk.response, "citations"
+                    ):
                         print("\nCitations:")
                         for i, cite in enumerate(chunk.response.citations or [], 1):
                             print(f"  [{i}] {cite}")

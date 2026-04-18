@@ -21,6 +21,21 @@ CANVAS_CHAT_DEV_MODE=true uv run uvicorn canvas_chat.app:app \
     --port 7865
 """
 
+[tasks.debug]
+description = "Run development server with debug logging for LiteLLM and application"
+run = """
+CANVAS_CHAT_DEV_MODE=true \
+LOG_LEVEL=DEBUG \
+LITELLM_LOG=DEBUG \
+uv run uvicorn canvas_chat.app:app \
+    --reload \
+    --reload-include '*.js' \
+    --reload-include '*.css' \
+    --reload-include '*.html' \
+    --log-level debug \
+    --port 7865
+"""
+
 [tasks.test]
 description = "Run Python tests"
 run = "uv run pytest tests/ -v"

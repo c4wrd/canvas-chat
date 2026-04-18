@@ -52,7 +52,8 @@ def _try_init():
             cred = credentials.Certificate(str(cred_path))
         else:
             logger.warning(
-                f"GOOGLE_APPLICATION_CREDENTIALS points to non-existent file: {cred_path}"
+                "GOOGLE_APPLICATION_CREDENTIALS points to"
+                f" non-existent file: {cred_path}"
             )
 
     # Option 2: firebase-service-account.json in project root
@@ -71,7 +72,8 @@ def _try_init():
     if cred is None:
         logger.info(
             "No Firebase credentials found — Firebase features disabled. "
-            "Set GOOGLE_APPLICATION_CREDENTIALS or place firebase-service-account.json in project root."
+            "Set GOOGLE_APPLICATION_CREDENTIALS or "
+            "place firebase-service-account.json in project root."
         )
         return False
 

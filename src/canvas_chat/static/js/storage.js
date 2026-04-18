@@ -750,19 +750,42 @@ class Storage {
     }
 
     /**
-     * Get reasoning effort level for extended thinking
-     * @returns {string} - 'none', 'low', 'medium', or 'high' (default: 'none')
+     *
      */
-    getReasoningEffort() {
-        return localStorage.getItem('canvas-chat-reasoning-effort') || 'none';
+    getThinkingEnabled() {
+        return localStorage.getItem('canvas-chat-thinking-enabled') === 'true';
     }
 
     /**
-     * Set reasoning effort level for extended thinking
-     * @param {string} value - 'none', 'low', 'medium', or 'high'
+     *
+     * @param value
      */
-    setReasoningEffort(value) {
-        localStorage.setItem('canvas-chat-reasoning-effort', value);
+    setThinkingEnabled(value) {
+        localStorage.setItem('canvas-chat-thinking-enabled', value ? 'true' : 'false');
+    }
+
+    /**
+     *
+     */
+    getThinkingEffort() {
+        return localStorage.getItem('canvas-chat-thinking-effort') || 'medium';
+    }
+
+    /**
+     *
+     * @param value
+     */
+    setThinkingEffort(value) {
+        localStorage.setItem('canvas-chat-thinking-effort', value);
+    }
+
+    /**
+     * Derived getter used by buildLLMRequest — returns effort string or 'none'.
+     * @returns {string} - 'none', 'low', 'medium', 'high', or 'xhigh'
+     */
+    getReasoningEffort() {
+        if (!this.getThinkingEnabled()) return 'none';
+        return this.getThinkingEffort();
     }
 
     /**

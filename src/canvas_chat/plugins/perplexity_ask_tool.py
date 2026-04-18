@@ -39,7 +39,10 @@ class PerplexityAskTool(ToolPlugin):
                 },
                 "recency_filter": {
                     "type": "string",
-                    "description": "Filter results by recency: 'day', 'week', 'month', 'year', or null for no filter",
+                    "description": (
+                        "Filter results by recency: 'day', 'week', "
+                        "'month', 'year', or null for no filter"
+                    ),
                     "enum": ["day", "week", "month", "year"],
                 },
             },
@@ -69,7 +72,10 @@ class PerplexityAskTool(ToolPlugin):
 
         if not api_key:
             return {
-                "error": "Perplexity API key not configured. Add it in Settings or set PERPLEXITY_API_KEY environment variable.",
+                "error": (
+                    "Perplexity API key not configured. "
+                    "Add it in Settings or set PERPLEXITY_API_KEY environment variable."
+                ),
                 "answer": "",
                 "citations": [],
             }
@@ -86,14 +92,15 @@ class PerplexityAskTool(ToolPlugin):
                 response = await client.chat.completions.create(
                     messages=[{"role": "user", "content": question}],
                     model="sonar",  # Fast model for tool use
-                    web_search_options=web_search_options if web_search_options else None,
+                    web_search_options=web_search_options
+                    if web_search_options
+                    else None,
                 )
 
                 answer = response.choices[0].message.content
-                citations = (
-                    getattr(response, 'citations', [])
-                    or response.model_extra.get('citations', [])
-                )
+                citations = getattr(
+                    response, "citations", []
+                ) or response.model_extra.get("citations", [])
 
                 # Format citations for display
                 formatted_citations = []
@@ -101,10 +108,12 @@ class PerplexityAskTool(ToolPlugin):
                     if isinstance(citation, str):
                         formatted_citations.append({"url": citation, "title": citation})
                     elif isinstance(citation, dict):
-                        formatted_citations.append({
-                            "url": citation.get("url", ""),
-                            "title": citation.get("title", citation.get("url", "")),
-                        })
+                        formatted_citations.append(
+                            {
+                                "url": citation.get("url", ""),
+                                "title": citation.get("title", citation.get("url", "")),
+                            }
+                        )
 
                 return {
                     "question": question,

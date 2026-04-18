@@ -5,16 +5,13 @@ and LLM tool plugins.
 """
 
 # Import built-in URL fetch handler plugins (registers them)
-from canvas_chat.plugins import (
-    git_repo_handler,  # noqa: F401
-    pdf_url_handler,  # noqa: F401
-    youtube_handler,  # noqa: F401
-)
-
 # Import built-in tool plugins (registers them)
 from canvas_chat.plugins import (
     calculator_tool,  # noqa: F401
+    git_repo_handler,  # noqa: F401
+    pdf_url_handler,  # noqa: F401
     perplexity_ask_tool,  # noqa: F401
     perplexity_search_tool,  # noqa: F401
     web_search_tool,  # noqa: F401
+    youtube_handler,  # noqa: F401
 )

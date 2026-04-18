@@ -118,8 +118,16 @@
     transform: scale(0.95);
 }
 
-/* Reasoning Picker */
-.reasoning-picker {
+/* Thinking Toggle */
+.thinking-toggle-container {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.thinking-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     padding: 8px 10px;
     border: 2px solid var(--bg-secondary);
     border-radius: var(--radius-md);
@@ -127,22 +135,153 @@
     color: var(--text-secondary);
     font-size: 12px;
     cursor: pointer;
-    transition: border-color 0.15s, color 0.15s;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.thinking-toggle-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.thinking-toggle-btn.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--bg-secondary);
+}
+
+.thinking-toggle-label {
+    font-size: 12px;
+    min-width: 36px;
+    text-align: left;
+    text-transform: capitalize;
+}
+
+.thinking-menu {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    margin-bottom: 8px;
+    background: var(--bg-primary);
+    border: 2px solid var(--bg-secondary);
+    border-radius: var(--radius-lg);
+    padding: 12px;
+    min-width: 220px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+}
+
+.thinking-menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--bg-secondary);
+}
+
+.thinking-menu-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* Toggle switch */
+.thinking-switch-label {
+    position: relative;
+    display: inline-block;
+    width: 34px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.thinking-enabled-checkbox {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    position: absolute;
+}
+
+.thinking-switch-track {
+    position: absolute;
+    inset: 0;
+    background: var(--bg-secondary);
+    border-radius: 10px;
+    transition: background 0.2s;
+}
+
+.thinking-switch-track::after {
+    content: '';
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    left: 3px;
+    top: 3px;
+    background: var(--text-secondary);
+    border-radius: 50%;
+    transition: transform 0.2s, background 0.2s;
+}
+
+.thinking-enabled-checkbox:checked + .thinking-switch-track {
+    background: var(--accent);
+}
+
+.thinking-enabled-checkbox:checked + .thinking-switch-track::after {
+    transform: translateX(16px);
+    background: #fff;
+}
+
+.thinking-enabled-checkbox:disabled + .thinking-switch-track {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Effort row */
+.thinking-effort-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.thinking-effort-label {
+    font-size: 12px;
+    color: var(--text-secondary);
     flex-shrink: 0;
 }
 
-.reasoning-picker:hover {
-    border-color: var(--accent);
+.thinking-effort-options {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
 }
 
-.reasoning-picker:focus {
-    outline: none;
-    border-color: var(--accent);
+.thinking-effort-btn {
+    padding: 4px 9px;
+    font-size: 11px;
+    border: 1.5px solid var(--bg-secondary);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
 
-.reasoning-picker.active {
+.thinking-effort-btn:hover {
     border-color: var(--accent);
     color: var(--accent);
+}
+
+.thinking-effort-btn.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--bg-secondary);
+}
+
+.thinking-unsupported {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-style: italic;
+    margin-top: 4px;
 }
 
 /* Temperature Toggle */

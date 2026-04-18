@@ -48,7 +48,10 @@ class PerplexitySearchTool(ToolPlugin):
                 "domain_filter": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Optional list of domains to search within (e.g., ['wikipedia.org', 'github.com'])",
+                    "description": (
+                        "Optional list of domains to search within "
+                        "(e.g., ['wikipedia.org', 'github.com'])"
+                    ),
                 },
             },
             "required": ["query"],
@@ -79,7 +82,10 @@ class PerplexitySearchTool(ToolPlugin):
 
         if not api_key:
             return {
-                "error": "Perplexity API key not configured. Add it in Settings or set PERPLEXITY_API_KEY environment variable.",
+                "error": (
+                    "Perplexity API key not configured. "
+                    "Add it in Settings or set PERPLEXITY_API_KEY environment variable."
+                ),
                 "results": [],
             }
 
@@ -93,7 +99,8 @@ class PerplexitySearchTool(ToolPlugin):
                     "most relevant web pages for the query. For each result, provide:\n"
                     "1. Title\n2. URL\n3. Brief description (1-2 sentences)\n\n"
                     "Format your response as a JSON array with objects containing "
-                    "'title', 'url', and 'snippet' fields. Only output the JSON array, no other text."
+                    "'title', 'url', and 'snippet' fields. "
+                    "Only output the JSON array, no other text."
                 )
 
                 # Build web_search_options
@@ -107,44 +114,53 @@ class PerplexitySearchTool(ToolPlugin):
                         {"role": "user", "content": f"Search query: {query}"},
                     ],
                     model="sonar",  # Fast model for search
-                    web_search_options=web_search_options if web_search_options else None,
+                    web_search_options=web_search_options
+                    if web_search_options
+                    else None,
                 )
 
                 content = response.choices[0].message.content
-                citations = (
-                    getattr(response, 'citations', [])
-                    or response.model_extra.get('citations', [])
-                )
+                citations = getattr(
+                    response, "citations", []
+                ) or response.model_extra.get("citations", [])
 
                 # Try to parse JSON results from response
                 results = []
                 try:
                     # Find JSON array in response
-                    json_match = re.search(r'\[[\s\S]*\]', content)
+                    json_match = re.search(r"\[[\s\S]*\]", content)
                     if json_match:
                         parsed = json.loads(json_match.group())
                         for item in parsed[:num_results]:
-                            results.append({
-                                "title": item.get("title", "Untitled"),
-                                "url": item.get("url", ""),
-                                "snippet": item.get("snippet", item.get("description", "")),
-                            })
+                            results.append(
+                                {
+                                    "title": item.get("title", "Untitled"),
+                                    "url": item.get("url", ""),
+                                    "snippet": item.get(
+                                        "snippet", item.get("description", "")
+                                    ),
+                                }
+                            )
                 except (json.JSONDecodeError, KeyError) as e:
                     logger.warning(f"[PerplexitySearchTool] Failed to parse JSON: {e}")
                     # Fall back to using citations if available
                     for citation in citations[:num_results]:
                         if isinstance(citation, str):
-                            results.append({
-                                "title": citation,
-                                "url": citation,
-                                "snippet": "",
-                            })
+                            results.append(
+                                {
+                                    "title": citation,
+                                    "url": citation,
+                                    "snippet": "",
+                                }
+                            )
                         elif isinstance(citation, dict):
-                            results.append({
-                                "title": citation.get("title", "Untitled"),
-                                "url": citation.get("url", ""),
-                                "snippet": citation.get("snippet", ""),
-                            })
+                            results.append(
+                                {
+                                    "title": citation.get("title", "Untitled"),
+                                    "url": citation.get("url", ""),
+                                    "snippet": citation.get("snippet", ""),
+                                }
+                            )
 
                 return {
                     "query": query,

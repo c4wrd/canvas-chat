@@ -68,11 +68,13 @@ class WebSearchTool(ToolPlugin):
 
             formatted_results = []
             for result in results:
-                formatted_results.append({
-                    "title": result.get("title", "Untitled"),
-                    "url": result.get("href", ""),
-                    "snippet": result.get("body", ""),
-                })
+                formatted_results.append(
+                    {
+                        "title": result.get("title", "Untitled"),
+                        "url": result.get("href", ""),
+                        "snippet": result.get("body", ""),
+                    }
+                )
 
             return {
                 "query": query,
