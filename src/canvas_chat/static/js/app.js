@@ -147,6 +147,7 @@ class App {
         this.budgetText = document.getElementById('budget-text');
         this.selectedIndicator = document.getElementById('selected-nodes-indicator');
         this.selectedCount = document.getElementById('selected-count');
+        this.closeAllAppMenus = () => {};
 
         this.init();
     }
@@ -1440,8 +1441,8 @@ class App {
         this.multiplayerBtn.addEventListener('click', () => this.handleMultiplayerClick());
         this.multiplayerLeaveBtn.addEventListener('click', () => this.leaveMultiplayer());
 
-        // Export/Import dropdowns
-        this.setupExportImportDropdowns();
+        // Application menus
+        this.setupApplicationMenus();
 
         // PDF attachment
         document.getElementById('attach-btn').addEventListener('click', () => {
@@ -1503,6 +1504,8 @@ class App {
                 // Priority order: popover > search > any modal > clear selection
                 if (this.canvas.isNavPopoverOpen()) {
                     this.canvas.hideNavPopover();
+                } else if (document.querySelector('.menu-trigger[aria-expanded="true"]')) {
+                    this.closeAllAppMenus();
                 } else if (this.isSearchOpen()) {
                     this.closeSearch();
                 } else if (this.modalManager.closeAnyOpenModal()) {
@@ -4624,7 +4627,7 @@ print("Hello from Pyodide!")
 
         try {
             // Show loading state
-            btn.textContent = '⏳';
+            btn.textContent = 'Generating Title...';
             btn.disabled = true;
 
             // Gather content from root nodes and their immediate replies
@@ -4790,95 +4793,110 @@ print("Hello from Pyodide!")
     }
 
     /**
-     * Setup export/import dropdown menus.
+     * Setup the top-level application menus.
      */
-    setupExportImportDropdowns() {
-        const exportBtn = document.getElementById('export-btn');
-        const exportMenu = document.getElementById('export-menu');
-        const importBtn = document.getElementById('import-btn');
-        const importMenu = document.getElementById('import-menu');
+    setupApplicationMenus() {
+        /** @type {HTMLElement[]} */
+        const menus = Array.from(document.querySelectorAll('.app-menu'));
+        const importSessionBtn = document.getElementById('import-session-btn');
+        const importBackupBtn = document.getElementById('import-backup-btn');
+        const exportCurrentBtn = document.getElementById('export-current-btn');
+        const exportAllBtn = document.getElementById('export-all-btn');
+        const importFileInput = document.getElementById('import-file-input');
+        const importBackupInput = document.getElementById('import-backup-input');
 
-        // Toggle export menu
-        exportBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const isVisible = exportMenu.style.display !== 'none';
-            this.closeAllDropdowns();
-            if (!isVisible) {
-                this.positionDropdown(exportBtn, exportMenu);
-                exportMenu.style.display = 'block';
+        /**
+         * @param {HTMLElement} menu
+         */
+        const openMenu = (menu) => {
+            menus.forEach((menuEl) => {
+                const trigger = /** @type {HTMLButtonElement | null} */ (menuEl.querySelector('.menu-trigger'));
+                const panel = /** @type {HTMLElement | null} */ (menuEl.querySelector('.app-menu-panel'));
+                const isActive = menuEl === menu;
+                if (panel) {
+                    panel.style.display = isActive ? 'block' : 'none';
+                }
+                if (trigger) {
+                    trigger.setAttribute('aria-expanded', isActive ? 'true' : 'false');
+                }
+            });
+        };
+
+        this.closeAllAppMenus = () => {
+            menus.forEach((menuEl) => {
+                const trigger = /** @type {HTMLButtonElement | null} */ (menuEl.querySelector('.menu-trigger'));
+                const panel = /** @type {HTMLElement | null} */ (menuEl.querySelector('.app-menu-panel'));
+                if (panel) {
+                    panel.style.display = 'none';
+                }
+                if (trigger) {
+                    trigger.setAttribute('aria-expanded', 'false');
+                }
+            });
+        };
+
+        menus.forEach((menu) => {
+            const trigger = /** @type {HTMLButtonElement | null} */ (menu.querySelector('.menu-trigger'));
+            const panel = /** @type {HTMLElement | null} */ (menu.querySelector('.app-menu-panel'));
+            if (!trigger || !panel) {
+                return;
             }
+
+            trigger.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isOpen = trigger.getAttribute('aria-expanded') === 'true';
+                if (isOpen) {
+                    this.closeAllAppMenus();
+                } else {
+                    openMenu(menu);
+                }
+            });
+
+            menu.addEventListener('mouseenter', () => {
+                const hasOpenMenu = menus.some((menuEl) => {
+                    const menuTrigger = menuEl.querySelector('.menu-trigger');
+                    return menuTrigger?.getAttribute('aria-expanded') === 'true';
+                });
+                if (hasOpenMenu) {
+                    openMenu(menu);
+                }
+            });
+
+            panel.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
         });
 
-        // Toggle import menu
-        importBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const isVisible = importMenu.style.display !== 'none';
-            this.closeAllDropdowns();
-            if (!isVisible) {
-                this.positionDropdown(importBtn, importMenu);
-                importMenu.style.display = 'block';
-            }
+        document.querySelectorAll('.app-menu-item').forEach((item) => {
+            item.addEventListener('click', () => {
+                const button = /** @type {HTMLButtonElement} */ (item);
+                if (!button.disabled) {
+                    this.closeAllAppMenus();
+                }
+            });
         });
 
-        // Handle export menu actions
-        exportMenu.addEventListener('click', (e) => {
-            const action = e.target.dataset.action;
-            if (action === 'export-current') {
-                this.exportSession();
-            } else if (action === 'export-all') {
-                storage.exportAllSessions();
-            }
-            this.closeAllDropdowns();
-        });
+        importSessionBtn.addEventListener('click', () => importFileInput.click());
+        importBackupBtn.addEventListener('click', () => importBackupInput.click());
+        exportCurrentBtn.addEventListener('click', () => this.exportSession());
+        exportAllBtn.addEventListener('click', () => storage.exportAllSessions());
 
-        // Handle import menu actions
-        importMenu.addEventListener('click', (e) => {
-            const action = e.target.dataset.action;
-            if (action === 'import-session') {
-                document.getElementById('import-file-input').click();
-            } else if (action === 'import-backup') {
-                document.getElementById('import-backup-input').click();
-            }
-            this.closeAllDropdowns();
-        });
-
-        // File input handlers
-        document.getElementById('import-file-input').addEventListener('change', (e) => {
+        importFileInput.addEventListener('change', (e) => {
             if (e.target.files.length > 0) {
                 this.importSession(e.target.files[0]);
                 e.target.value = '';
             }
         });
 
-        document.getElementById('import-backup-input').addEventListener('change', (e) => {
+        importBackupInput.addEventListener('change', (e) => {
             if (e.target.files.length > 0) {
                 this.importBackup(e.target.files[0]);
                 e.target.value = '';
             }
         });
 
-        // Close dropdowns when clicking outside
-        document.addEventListener('click', () => this.closeAllDropdowns());
-    }
-
-    /**
-     * Close all toolbar dropdown menus.
-     */
-    closeAllDropdowns() {
-        document.querySelectorAll('.toolbar-dropdown-menu').forEach((menu) => {
-            menu.style.display = 'none';
-        });
-    }
-
-    /**
-     * Position a dropdown menu below its trigger button.
-     * @param {HTMLElement} button - The trigger button
-     * @param {HTMLElement} menu - The dropdown menu
-     */
-    positionDropdown(button, menu) {
-        const rect = button.getBoundingClientRect();
-        menu.style.top = `${rect.bottom + 4}px`;
-        menu.style.right = `${window.innerWidth - rect.right}px`;
+        document.addEventListener('click', () => this.closeAllAppMenus());
+        window.addEventListener('resize', () => this.closeAllAppMenus());
     }
 
     /**
