@@ -37,6 +37,8 @@ class DeepResearchFeature extends FeaturePlugin {
     async onLoad() {
         console.log('[DeepResearchFeature] Loaded');
 
+        this.registerConfigModal();
+
         // Check for resumable research on load (after session loads)
         // Use setTimeout to ensure session is loaded first
         setTimeout(() => {
@@ -50,6 +52,105 @@ class DeepResearchFeature extends FeaturePlugin {
         this.canvas.on('nodeContinueGeneration', async (nodeId) => {
             await this.handleContinueRequest(nodeId);
         });
+
+        // Plan-review buttons rendered inside the deep_research node emit
+        // these canvas events. The node binding sends `{ feedback }` payload.
+        this.canvas.on('deepResearchPlanRevise', async (nodeId, payload) => {
+            await this.submitPlanRevision(nodeId, payload?.feedback || '', false);
+        });
+        this.canvas.on('deepResearchPlanApprove', async (nodeId, payload) => {
+            await this.submitPlanRevision(nodeId, payload?.feedback || '', true);
+        });
+    }
+
+    /**
+     * Register the model + planning configuration modal opened by /deep-research.
+     */
+    registerConfigModal() {
+        const modalTemplate = `
+            <div id="deep-research-config-modal" class="modal" style="display: none">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>Deep Research</h2>
+                        <button class="modal-close" id="dr-config-close">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="dr-config-group">
+                            <label for="dr-config-model">Model</label>
+                            <select id="dr-config-model" class="dr-config-select">
+                                <option value="standard">Deep Research — ~$1–$3 per task</option>
+                                <option value="max">Deep Research Max — ~$3–$7, ~160 searches, ~900k tokens</option>
+                            </select>
+                        </div>
+                        <div class="dr-config-group">
+                            <label class="dr-config-checkbox">
+                                <input type="checkbox" id="dr-config-planning" />
+                                <span>Review plan before running</span>
+                            </label>
+                            <span class="dr-config-hint">The agent drafts a plan first; you can revise or approve it before research kicks off.</span>
+                        </div>
+                        <div class="dr-config-group">
+                            <label for="dr-config-query">Research query</label>
+                            <textarea
+                                id="dr-config-query"
+                                class="modal-text-input dr-config-query"
+                                rows="4"
+                                placeholder="What would you like to research?"
+                            ></textarea>
+                        </div>
+                        <div class="modal-actions">
+                            <button id="dr-config-cancel" class="secondary-btn">Cancel</button>
+                            <button id="dr-config-submit" class="primary-btn">Start research</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        this.modalManager.registerModal('deep-research', 'config', modalTemplate);
+
+        this.injectCSS(`
+            #deep-research-config-modal .dr-config-group {
+                margin-bottom: 16px;
+            }
+            #deep-research-config-modal .dr-config-group label {
+                display: block;
+                font-size: 13px;
+                font-weight: 500;
+                color: var(--text-primary);
+                margin-bottom: 6px;
+            }
+            #deep-research-config-modal .dr-config-select {
+                width: 100%;
+                padding: 8px 10px;
+                border-radius: var(--radius-sm, 4px);
+                border: 1px solid var(--border, #d0d0d0);
+                background: var(--bg-primary);
+                color: var(--text-primary);
+                font-size: 13px;
+            }
+            #deep-research-config-modal .dr-config-checkbox {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-weight: 500;
+                cursor: pointer;
+                margin-bottom: 4px;
+            }
+            #deep-research-config-modal .dr-config-checkbox input {
+                margin: 0;
+            }
+            #deep-research-config-modal .dr-config-hint {
+                display: block;
+                font-size: 12px;
+                color: var(--text-muted);
+            }
+            #deep-research-config-modal .dr-config-query {
+                width: 100%;
+                resize: vertical;
+                min-height: 80px;
+                font-family: inherit;
+            }
+        `, 'deep-research-config-styles');
     }
 
     /**
@@ -90,6 +191,12 @@ class DeepResearchFeature extends FeaturePlugin {
         for (const node of nodes) {
             // Only check deep research nodes
             if (node.type !== NodeType.DEEP_RESEARCH) continue;
+
+            // Skip nodes still in the planning workflow — fetching the final
+            // report would clobber the plan-review state.
+            if (node.status === 'planning' || node.status === 'awaiting_plan_approval') {
+                continue;
+            }
 
             // Check if it's a completed node with a Google ID but missing/minimal content
             if (node.googleInteractionId && this.isContentMissing(node)) {
@@ -252,10 +359,8 @@ class DeepResearchFeature extends FeaturePlugin {
      * @param {Object} contextObj - Additional context (e.g., { text: selectedNodesContent })
      */
     async handleDeepResearch(command, args, contextObj) {
-        const query = args.trim();
+        const initialQuery = args.trim();
         const selectedContext = contextObj?.text || null;
-
-        console.log('[DeepResearch] Starting with:', { command, query, selectedContext });
 
         // Check for Google API key
         const googleApiKey = storage.getGoogleApiKey();
@@ -264,40 +369,120 @@ class DeepResearchFeature extends FeaturePlugin {
             return;
         }
 
-        // Get selected nodes for positioning and multimodal context
+        // Capture parent selection now — closing the modal must not change it.
         const parentIds = this.canvas.getSelectedNodeIds();
-
-        // Extract multimodal content from selected nodes
         const multimodalContent = this.extractMultimodalContent(parentIds);
 
-        // Create deep research node
-        const deepResearchNode = createNode(NodeType.DEEP_RESEARCH, `**Deep Research:** ${query}\n\n*Starting research...*`, {
-            position: this.graph.autoPosition(parentIds.length > 0 ? parentIds : []),
-            model: 'google-deep-research',
-            // Store metadata for resume support
-            interactionId: null, // Will be set after API call
-            status: 'starting',
-            thinkingHistory: [],
-            sources: [],
-            startedAt: Date.now(),
+        this.openConfigModal({
+            initialQuery,
+            onSubmit: async ({ model, collaborativePlanning, query }) => {
+                if (!query) {
+                    this.showToast?.('Enter a research query.', 'error');
+                    return;
+                }
+
+                const initialContent = collaborativePlanning
+                    ? `**Deep Research:** ${query}\n\n*Drafting plan...*`
+                    : `**Deep Research:** ${query}\n\n*Starting research...*`;
+
+                const deepResearchNode = createNode(NodeType.DEEP_RESEARCH, initialContent, {
+                    position: this.graph.autoPosition(parentIds.length > 0 ? parentIds : []),
+                    model: model === 'max' ? 'google-deep-research-max' : 'google-deep-research',
+                    modelTier: model,
+                    collaborativePlanning,
+                    planTurns: [],
+                    interactionId: null,
+                    status: collaborativePlanning ? 'planning' : 'starting',
+                    thinkingHistory: [],
+                    sources: [],
+                    startedAt: Date.now(),
+                });
+
+                this.graph.addNode(deepResearchNode);
+
+                for (const parentId of parentIds) {
+                    const edge = createEdge(parentId, deepResearchNode.id, EdgeType.REFERENCE);
+                    this.graph.addEdge(edge);
+                    const parentNode = this.graph.getNode(parentId);
+                    this.canvas.renderEdge(edge, parentNode.position, deepResearchNode.position);
+                }
+
+                this.canvas.clearSelection();
+                this.saveSession();
+                this.updateEmptyState();
+
+                await this.startResearch(
+                    deepResearchNode.id,
+                    query,
+                    selectedContext,
+                    multimodalContent,
+                    googleApiKey,
+                    null,
+                    { model, collaborativePlanning },
+                );
+            },
         });
+    }
 
-        this.graph.addNode(deepResearchNode);
-
-        // Create edges from parents only if they exist
-        for (const parentId of parentIds) {
-            const edge = createEdge(parentId, deepResearchNode.id, EdgeType.REFERENCE);
-            this.graph.addEdge(edge);
-            const parentNode = this.graph.getNode(parentId);
-            this.canvas.renderEdge(edge, parentNode.position, deepResearchNode.position);
+    /**
+     * Show the model + planning configuration modal.
+     * @param {Object} opts
+     * @param {string} opts.initialQuery - Prefill text for the query field.
+     * @param {(values: {model: string, collaborativePlanning: boolean, query: string}) => Promise<void>} opts.onSubmit
+     */
+    openConfigModal({ initialQuery, onSubmit }) {
+        const modal = this.modalManager.getPluginModal('deep-research', 'config');
+        if (!modal) {
+            console.error('[DeepResearch] Config modal not registered');
+            return;
         }
 
-        this.canvas.clearSelection();
-        this.saveSession();
-        this.updateEmptyState();
+        const modelEl = modal.querySelector('#dr-config-model');
+        const planningEl = modal.querySelector('#dr-config-planning');
+        const queryEl = modal.querySelector('#dr-config-query');
+        const submitBtn = modal.querySelector('#dr-config-submit');
+        const cancelBtn = modal.querySelector('#dr-config-cancel');
+        const closeBtn = modal.querySelector('#dr-config-close');
 
-        // Start the research
-        await this.startResearch(deepResearchNode.id, query, selectedContext, multimodalContent, googleApiKey);
+        modelEl.value = 'standard';
+        planningEl.checked = false;
+        queryEl.value = initialQuery || '';
+
+        const close = () => this.modalManager.hidePluginModal('deep-research', 'config');
+
+        const cleanup = () => {
+            submitBtn.removeEventListener('click', onSubmitClick);
+            cancelBtn.removeEventListener('click', onCancelClick);
+            closeBtn.removeEventListener('click', onCancelClick);
+        };
+
+        const onSubmitClick = async () => {
+            const values = {
+                model: modelEl.value === 'max' ? 'max' : 'standard',
+                collaborativePlanning: !!planningEl.checked,
+                query: queryEl.value.trim(),
+            };
+            cleanup();
+            close();
+            try {
+                await onSubmit(values);
+            } catch (err) {
+                console.error('[DeepResearch] config submit failed:', err);
+            }
+        };
+
+        const onCancelClick = () => {
+            cleanup();
+            close();
+        };
+
+        submitBtn.addEventListener('click', onSubmitClick);
+        cancelBtn.addEventListener('click', onCancelClick);
+        closeBtn.addEventListener('click', onCancelClick);
+
+        this.modalManager.showPluginModal('deep-research', 'config');
+        // Focus the query field for keyboard-first use
+        setTimeout(() => queryEl?.focus(), 50);
     }
 
     /**
@@ -308,13 +493,17 @@ class DeepResearchFeature extends FeaturePlugin {
      * @param {Object} multimodalContent - Images and other multimodal content
      * @param {string} apiKey - Google API key
      * @param {string|null} existingInteractionId - Existing interaction ID for resume
+     * @param options
      */
-    async startResearch(nodeId, query, context, multimodalContent, apiKey, existingInteractionId = null) {
+    async startResearch(nodeId, query, context, multimodalContent, apiKey, existingInteractionId = null, options = {}) {
         const node = this.graph.getNode(nodeId);
         if (!node) {
             console.error('[DeepResearch] Node not found:', nodeId);
             return;
         }
+
+        const modelTier = options.model || node.modelTier || 'standard';
+        const collaborativePlanning = options.collaborativePlanning ?? node.collaborativePlanning ?? false;
 
         // Create abort controller for stop button support
         const abortController = new AbortController();
@@ -329,6 +518,8 @@ class DeepResearchFeature extends FeaturePlugin {
                 textContext: context,
                 multimodalContent,
                 apiKey,
+                modelTier,
+                collaborativePlanning,
             },
             onContinue: async (nodeId, state, _newAbortController) => {
                 // Continue research from where it left off
@@ -339,7 +530,11 @@ class DeepResearchFeature extends FeaturePlugin {
                     state.context.textContext,
                     state.context.multimodalContent,
                     state.context.apiKey,
-                    existingNode?.interactionId
+                    existingNode?.interactionId,
+                    {
+                        model: state.context.modelTier,
+                        collaborativePlanning: state.context.collaborativePlanning,
+                    },
                 );
             },
         });
@@ -349,7 +544,10 @@ class DeepResearchFeature extends FeaturePlugin {
 
             // Start new research if no existing interaction
             if (!interactionId) {
-                this.canvas.updateNodeContent(nodeId, `**Deep Research:** ${query}\n\n*Initiating research task...*`, true);
+                const initStatus = collaborativePlanning
+                    ? 'Initiating planning task...'
+                    : 'Initiating research task...';
+                this.canvas.updateNodeContent(nodeId, `**Deep Research:** ${query}\n\n*${initStatus}*`, true);
 
                 // Call start endpoint
                 const startHeaders = { 'Content-Type': 'application/json' };
@@ -364,6 +562,8 @@ class DeepResearchFeature extends FeaturePlugin {
                         context: context || null,
                         images: multimodalContent?.images || null,
                         api_key: apiKey,
+                        model: modelTier,
+                        collaborative_planning: collaborativePlanning,
                     }),
                     signal: abortController.signal,
                 });
@@ -378,7 +578,7 @@ class DeepResearchFeature extends FeaturePlugin {
                 // Store task ID in node metadata for resume
                 this.graph.updateNode(nodeId, {
                     taskId: interactionId,
-                    status: 'in_progress',
+                    status: collaborativePlanning ? 'planning' : 'in_progress',
                 });
 
                 // Store in localStorage for browser resume (Google ID added later when we get it)
@@ -409,6 +609,39 @@ class DeepResearchFeature extends FeaturePlugin {
             let lastStatus = '';
             let googleInteractionId = null;
 
+            // Planning-turn state. `planChunkBuffer` accumulates the live plan
+            // text; on `plan_done` we finalize the turn and stop without
+            // entering the completion path.
+            const existingTurns = (this.graph.getNode(nodeId)?.planTurns || []).slice();
+            let planTurns = existingTurns;
+            let planChunkBuffer = '';
+            let planTurnPending = false;
+            let planCompleted = false;
+
+            const updateLivePlanTurn = () => {
+                const turns = planTurns.slice();
+                if (planTurnPending) {
+                    turns[turns.length - 1] = {
+                        role: 'agent',
+                        text: planChunkBuffer,
+                        pending: true,
+                    };
+                } else {
+                    turns.push({
+                        role: 'agent',
+                        text: planChunkBuffer,
+                        pending: true,
+                    });
+                    planTurnPending = true;
+                }
+                planTurns = turns;
+                this.graph.updateNode(nodeId, {
+                    planTurns,
+                    status: 'planning',
+                });
+                this.canvas.renderNode(this.graph.getNode(nodeId));
+            };
+
             await readSSEStream(streamResponse, {
                 onEvent: (eventType, data) => {
                     if (eventType === 'status') {
@@ -432,6 +665,35 @@ class DeepResearchFeature extends FeaturePlugin {
                         this.graph.updateNode(nodeId, { thinkingHistory });
                         // Re-render node to show thinking
                         this.canvas.renderNode(this.graph.getNode(nodeId));
+                    } else if (eventType === 'plan_chunk') {
+                        planChunkBuffer += data;
+                        updateLivePlanTurn();
+                    } else if (eventType === 'plan_done') {
+                        const finalText = (data && data.length > 0) ? data : planChunkBuffer;
+                        const turns = planTurns.slice();
+                        if (planTurnPending) {
+                            turns[turns.length - 1] = {
+                                role: 'agent',
+                                text: finalText,
+                                pending: false,
+                                interactionId: googleInteractionId,
+                            };
+                        } else {
+                            turns.push({
+                                role: 'agent',
+                                text: finalText,
+                                pending: false,
+                                interactionId: googleInteractionId,
+                            });
+                        }
+                        planTurns = turns;
+                        planTurnPending = false;
+                        planCompleted = true;
+                        this.graph.updateNode(nodeId, {
+                            planTurns,
+                            status: 'awaiting_plan_approval',
+                        });
+                        this.canvas.renderNode(this.graph.getNode(nodeId));
                     } else if (eventType === 'content') {
                         // Append content chunk
                         reportContent += data;
@@ -449,6 +711,13 @@ class DeepResearchFeature extends FeaturePlugin {
                 onDone: async () => {
                     // Clean up streaming state
                     this.streamingManager.unregister(nodeId);
+
+                    // Planning turn completed — leave the node in
+                    // awaiting_plan_approval and let the user revise/approve.
+                    if (planCompleted) {
+                        this.saveSession();
+                        return;
+                    }
 
                     // Check if we actually received substantial content
                     const currentNode = this.graph.getNode(nodeId);
@@ -540,6 +809,82 @@ class DeepResearchFeature extends FeaturePlugin {
     }
 
     /**
+     * Submit a plan revision or approval for a deep research node.
+     * Posts to /api/deep-research/revise then re-opens /stream to either
+     * iterate on the plan or kick off the actual research.
+     * @param {string} nodeId
+     * @param {string} feedback
+     * @param {boolean} approve
+     */
+    async submitPlanRevision(nodeId, feedback, approve) {
+        const node = this.graph.getNode(nodeId);
+        if (!node) return;
+
+        const taskId = node.taskId;
+        if (!taskId) {
+            this.showToast?.('No active research task to revise.', 'error');
+            return;
+        }
+
+        const apiKey = storage.getGoogleApiKey();
+        if (!apiKey) {
+            this.showToast?.('Google API key required. Add it in Settings.', 'error');
+            return;
+        }
+
+        try {
+            const headers = { 'Content-Type': 'application/json' };
+            const idToken = await authManager.getIdToken();
+            if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+
+            const reviseResponse = await fetch(apiUrl(`/api/deep-research/revise/${taskId}`), {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ feedback, approve }),
+            });
+
+            if (!reviseResponse.ok) {
+                const detail = await reviseResponse.text().catch(() => '');
+                throw new Error(`Failed to revise plan: ${reviseResponse.statusText} ${detail}`);
+            }
+
+            // Append the user's turn to the visible plan history.
+            if (feedback) {
+                const turns = (node.planTurns || []).slice();
+                turns.push({ role: 'user', text: feedback, approve });
+                this.graph.updateNode(nodeId, {
+                    planTurns: turns,
+                    status: approve ? 'in_progress' : 'planning',
+                });
+            } else {
+                this.graph.updateNode(nodeId, {
+                    status: approve ? 'in_progress' : 'planning',
+                });
+            }
+            this.canvas.renderNode(this.graph.getNode(nodeId));
+
+            // Re-open the stream — backend will pick up pending_revision and
+            // either iterate on the plan or run the actual research.
+            const refreshed = this.graph.getNode(nodeId);
+            await this.startResearch(
+                nodeId,
+                node.content?.split('\n')[0]?.replace('**Deep Research:**', '').trim() || '',
+                null,
+                null,
+                apiKey,
+                taskId,
+                {
+                    model: refreshed?.modelTier || 'standard',
+                    collaborativePlanning: refreshed?.collaborativePlanning ?? !approve,
+                },
+            );
+        } catch (err) {
+            console.error('[DeepResearch] Plan revision failed:', err);
+            this.showToast?.(err.message || 'Plan revision failed', 'error');
+        }
+    }
+
+    /**
      * Extract multimodal content (images, PDFs) from selected nodes
      * @param {string[]} nodeIds - Array of selected node IDs
      * @returns {Object} Object with images array and other content
@@ -603,10 +948,29 @@ class DeepResearchFeature extends FeaturePlugin {
                     continue;
                 }
 
+                // Awaiting plan approval — node state is already rendered from
+                // planTurns; the user drives progression via Revise/Approve.
+                // Don't auto-resume any stream.
+                if (node.status === 'awaiting_plan_approval') {
+                    continue;
+                }
+
                 // Get Google API key
                 const googleApiKey = storage.getGoogleApiKey();
                 if (!googleApiKey) {
                     console.warn('[DeepResearch] No Google API key, cannot resume');
+                    continue;
+                }
+
+                // Mid-planning: re-open /stream so the in-flight plan keeps
+                // streaming into the node. /resume/{googleId} is for completed
+                // research, not planning, so we use the task-id stream path.
+                if (node.status === 'planning' && data.taskId) {
+                    try {
+                        await this.resumeResearchStream(nodeId, data.taskId);
+                    } catch (err) {
+                        console.warn('[DeepResearch] Planning resume failed:', err);
+                    }
                     continue;
                 }
 
@@ -828,6 +1192,27 @@ class DeepResearchFeature extends FeaturePlugin {
             }
 
             let reportContent = node.content || `**Deep Research:** ${query}\n\n`;
+            let planChunkBuffer = '';
+            let planTurns = (node.planTurns || []).slice();
+            let planTurnPending = false;
+            let planCompleted = false;
+
+            const updateLivePlanTurn = () => {
+                const turns = planTurns.slice();
+                if (planTurnPending) {
+                    turns[turns.length - 1] = {
+                        role: 'agent',
+                        text: planChunkBuffer,
+                        pending: true,
+                    };
+                } else {
+                    turns.push({ role: 'agent', text: planChunkBuffer, pending: true });
+                    planTurnPending = true;
+                }
+                planTurns = turns;
+                this.graph.updateNode(nodeId, { planTurns, status: 'planning' });
+                this.canvas.renderNode(this.graph.getNode(nodeId));
+            };
 
             await readSSEStream(streamResponse, {
                 onEvent: (eventType, data) => {
@@ -843,6 +1228,37 @@ class DeepResearchFeature extends FeaturePlugin {
                         thinkingHistory.push({ timestamp: Date.now(), summary: data });
                         this.graph.updateNode(nodeId, { thinkingHistory });
                         this.canvas.renderNode(this.graph.getNode(nodeId));
+                    } else if (eventType === 'plan_chunk') {
+                        planChunkBuffer += data;
+                        updateLivePlanTurn();
+                    } else if (eventType === 'plan_done') {
+                        const finalText = (data && data.length > 0) ? data : planChunkBuffer;
+                        const turns = planTurns.slice();
+                        const refreshed = this.graph.getNode(nodeId);
+                        const interactionId = refreshed?.googleInteractionId || null;
+                        if (planTurnPending) {
+                            turns[turns.length - 1] = {
+                                role: 'agent',
+                                text: finalText,
+                                pending: false,
+                                interactionId,
+                            };
+                        } else {
+                            turns.push({
+                                role: 'agent',
+                                text: finalText,
+                                pending: false,
+                                interactionId,
+                            });
+                        }
+                        planTurns = turns;
+                        planTurnPending = false;
+                        planCompleted = true;
+                        this.graph.updateNode(nodeId, {
+                            planTurns,
+                            status: 'awaiting_plan_approval',
+                        });
+                        this.canvas.renderNode(this.graph.getNode(nodeId));
                     } else if (eventType === 'sources') {
                         try {
                             const sources = JSON.parse(data);
@@ -854,6 +1270,12 @@ class DeepResearchFeature extends FeaturePlugin {
                 },
                 onDone: () => {
                     this.streamingManager.unregister(nodeId);
+                    if (planCompleted) {
+                        // Awaiting user revision/approval — keep resumable
+                        // state so a refresh re-renders the node correctly.
+                        this.saveSession();
+                        return;
+                    }
                     this.clearResumableState(nodeId);
                     this.graph.updateNode(nodeId, { status: 'completed', completedAt: Date.now() });
                     this.canvas.updateNodeContent(nodeId, reportContent, false);

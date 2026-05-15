@@ -67,6 +67,9 @@ class DeepResearchNode extends BaseNode {
     renderContent(canvas) {
         let html = '<div class="deep-research-content">';
 
+        const isPlanning = this.node.status === 'planning';
+        const awaitingApproval = this.node.status === 'awaiting_plan_approval';
+
         // Status indicator for in-progress research
         if (this.node.status === 'in_progress' || this.node.status === 'starting') {
             html += `
@@ -75,6 +78,79 @@ class DeepResearchNode extends BaseNode {
                     <span>Research in progress...</span>
                 </div>
             `;
+        } else if (isPlanning) {
+            html += `
+                <div class="deep-research-status">
+                    <div class="deep-research-spinner"></div>
+                    <span>Drafting plan...</span>
+                </div>
+            `;
+        }
+
+        // Plan-review section (visible during planning + awaiting_plan_approval)
+        const turns = Array.isArray(this.node.planTurns) ? this.node.planTurns : [];
+        if ((isPlanning || awaitingApproval) && (turns.length > 0 || isPlanning)) {
+            html += '<div class="deep-research-plan-section">';
+            html += '<h4 class="deep-research-plan-header">Proposed plan</h4>';
+
+            const latestAgentIdx = (() => {
+                for (let i = turns.length - 1; i >= 0; i--) {
+                    if (turns[i].role === 'agent') return i;
+                }
+                return -1;
+            })();
+
+            // Earlier turns collapsed
+            if (latestAgentIdx > 0) {
+                html += `
+                    <details class="deep-research-plan-history">
+                        <summary>Plan history (${latestAgentIdx} earlier ${latestAgentIdx === 1 ? 'turn' : 'turns'})</summary>
+                        <div class="deep-research-plan-history-body" onwheel="event.stopPropagation()">
+                `;
+                for (let i = 0; i < latestAgentIdx; i++) {
+                    const t = turns[i];
+                    const roleLabel = t.role === 'user' ? (t.approve ? 'You approved' : 'Your feedback') : 'Agent plan';
+                    html += `
+                        <div class="deep-research-plan-turn ${t.role}">
+                            <span class="deep-research-plan-role">${canvas.escapeHtml(roleLabel)}</span>
+                            <div class="deep-research-plan-text">${canvas.renderMarkdown(t.text || '')}</div>
+                        </div>
+                    `;
+                }
+                html += '</div></details>';
+            }
+
+            // Latest agent plan
+            if (latestAgentIdx >= 0) {
+                const latest = turns[latestAgentIdx];
+                html += `
+                    <div class="deep-research-plan-turn agent latest">
+                        <div class="deep-research-plan-text">${canvas.renderMarkdown(latest.text || '')}</div>
+                    </div>
+                `;
+            } else if (isPlanning) {
+                html += '<div class="deep-research-plan-empty">Waiting for the agent to draft a plan...</div>';
+            }
+
+            // Revise/approve controls when awaiting approval
+            if (awaitingApproval) {
+                html += `
+                    <div class="deep-research-plan-controls">
+                        <textarea
+                            class="deep-research-plan-feedback"
+                            placeholder="Describe revisions (e.g., focus on X, drop section Y) — leave blank to approve as-is."
+                            rows="3"
+                            onwheel="event.stopPropagation()"
+                        ></textarea>
+                        <div class="deep-research-plan-buttons">
+                            <button class="secondary-btn deep-research-plan-revise-btn">Revise plan</button>
+                            <button class="primary-btn deep-research-plan-approve-btn">Approve & Run</button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            html += '</div>';
         }
 
         // Thinking summaries section (collapsible)
@@ -138,6 +214,34 @@ class DeepResearchNode extends BaseNode {
 
         html += '</div>';
         return html;
+    }
+
+    /**
+     * Wire revise/approve buttons inside the rendered plan section.
+     * Emits canvas events that the DeepResearchFeature plugin listens for.
+     * @returns {Array}
+     */
+    getEventBindings() {
+        return [
+            {
+                selector: '.deep-research-plan-revise-btn',
+                handler: (nodeId, e, canvas) => {
+                    const root = e.currentTarget.closest('.deep-research-plan-section');
+                    const textarea = root?.querySelector('.deep-research-plan-feedback');
+                    const feedback = textarea?.value?.trim() || '';
+                    canvas.emit('deepResearchPlanRevise', nodeId, { feedback });
+                },
+            },
+            {
+                selector: '.deep-research-plan-approve-btn',
+                handler: (nodeId, e, canvas) => {
+                    const root = e.currentTarget.closest('.deep-research-plan-section');
+                    const textarea = root?.querySelector('.deep-research-plan-feedback');
+                    const feedback = textarea?.value?.trim() || '';
+                    canvas.emit('deepResearchPlanApprove', nodeId, { feedback });
+                },
+            },
+        ];
     }
 }
 
@@ -329,6 +433,114 @@ NodeRegistry.register({
     font-weight: 600;
 }
 
+/* Plan-review section (collaborative planning) */
+.deep-research-plan-section {
+    background: rgba(102, 187, 106, 0.08);
+    border: 1px solid var(--node-deep-research-border);
+    border-radius: var(--radius-sm, 4px);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.deep-research-plan-header {
+    margin: 0;
+    font-size: 0.95em;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.deep-research-plan-history summary {
+    cursor: pointer;
+    font-size: 0.85em;
+    color: var(--text-secondary);
+    user-select: none;
+}
+
+.deep-research-plan-history-body {
+    margin-top: 8px;
+    padding: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--bg-secondary, rgba(0, 0, 0, 0.03));
+    border-radius: var(--radius-sm, 4px);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.deep-research-plan-turn {
+    padding: 8px 10px;
+    border-radius: var(--radius-sm, 4px);
+    background: var(--bg-primary);
+    border-left: 3px solid var(--node-deep-research-border);
+}
+
+.deep-research-plan-turn.user {
+    border-left-color: var(--accent, #228be6);
+    background: rgba(34, 139, 230, 0.06);
+}
+
+.deep-research-plan-turn.latest {
+    border-left-width: 4px;
+}
+
+.deep-research-plan-role {
+    display: block;
+    font-size: 0.75em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.deep-research-plan-text {
+    font-size: 0.9em;
+    color: var(--text-primary);
+    word-break: break-word;
+}
+
+.deep-research-plan-text p {
+    margin: 0 0 0.5em 0;
+}
+
+.deep-research-plan-text p:last-child {
+    margin-bottom: 0;
+}
+
+.deep-research-plan-empty {
+    font-size: 0.85em;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.deep-research-plan-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.deep-research-plan-feedback {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid var(--border, #d0d0d0);
+    border-radius: var(--radius-sm, 4px);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 0.9em;
+    resize: vertical;
+}
+
+.deep-research-plan-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
 /* Dark mode adjustments */
 @media (prefers-color-scheme: dark) {
     .node.deep_research {
@@ -350,6 +562,22 @@ NodeRegistry.register({
 
     .thought-text code {
         background: rgba(255, 255, 255, 0.1);
+    }
+
+    .deep-research-plan-section {
+        background: rgba(102, 187, 106, 0.12);
+    }
+
+    .deep-research-plan-turn {
+        background: rgba(255, 255, 255, 0.04);
+    }
+
+    .deep-research-plan-turn.user {
+        background: rgba(34, 139, 230, 0.12);
+    }
+
+    .deep-research-plan-history-body {
+        background: rgba(255, 255, 255, 0.03);
     }
 }
 `,

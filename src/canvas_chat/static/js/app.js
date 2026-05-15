@@ -5571,6 +5571,9 @@ print("Hello from Pyodide!")
         // Update empty state in case API key status changed
         this.updateEmptyState();
 
+        // Sync to Firestore if signed in
+        this.syncSettingsToRemote();
+
         this.modalManager.hideSettingsModal();
     }
 

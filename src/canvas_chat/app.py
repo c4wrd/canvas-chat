@@ -25,7 +25,7 @@ import sys
 import time
 import traceback
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 from uuid import uuid4
 
 import httpx
@@ -520,6 +520,8 @@ class DeepResearchStartRequest(BaseModel):
         None  # Optional base64-encoded images for multimodal context
     )
     api_key: str  # Google/Gemini API key
+    model: Literal["standard", "max"] = "standard"
+    collaborative_planning: bool = False
 
 
 class DeepResearchStartResponse(BaseModel):
@@ -535,6 +537,13 @@ class DeepResearchStatusResponse(BaseModel):
     interaction_id: str
     status: str  # "in_progress", "completed", "failed", "not_found"
     error: str | None = None
+
+
+class DeepResearchReviseRequest(BaseModel):
+    """Request body for revising or approving a deep research plan."""
+
+    feedback: str = ""
+    approve: bool = False
 
 
 class ProviderModelsRequest(BaseModel):
@@ -3706,8 +3715,12 @@ async def perplexity_responses(request: PerplexityResponsesRequest):
 # In production, this could be Redis or a database
 _deep_research_tasks: dict[str, dict] = {}
 
-# Deep Research agent model
-DEEP_RESEARCH_AGENT = "deep-research-pro-preview-12-2025"
+# Deep Research agent models — see https://ai.google.dev/gemini-api/docs/deep-research
+DEEP_RESEARCH_AGENTS = {
+    "standard": "deep-research-preview-04-2026",
+    "max": "deep-research-max-preview-04-2026",
+}
+DEFAULT_DEEP_RESEARCH_MODEL = "standard"
 
 
 @app.post("/api/deep-research/start")
@@ -3734,6 +3747,12 @@ async def deep_research_start(request: DeepResearchStartRequest):
             f"Context:\n{request.context}\n\nResearch query: {request.query}"
         )
 
+    model_key = (
+        request.model
+        if request.model in DEEP_RESEARCH_AGENTS
+        else DEFAULT_DEEP_RESEARCH_MODEL
+    )
+
     # Store task info - actual Google API call happens in /stream
     _deep_research_tasks[task_id] = {
         "status": "pending",
@@ -3742,6 +3761,10 @@ async def deep_research_start(request: DeepResearchStartRequest):
         "images": request.images,
         "api_key": request.api_key,
         "prompt": research_input,
+        "model": model_key,
+        "collaborative_planning": request.collaborative_planning,
+        "plan_turns": [],  # [{role, text, interaction_id}] populated during planning
+        "pending_revision": None,  # set by /revise: {feedback, approve}
         "google_interaction_id": None,  # Set when streaming starts
         "last_event_id": None,  # For resume support
         "result": None,
@@ -3838,34 +3861,128 @@ async def deep_research_stream(task_id: str, request: Request):
             client = genai.Client(api_key=task["api_key"])
 
             full_content = ""
+            plan_text = ""
+
+            agent_id = DEEP_RESEARCH_AGENTS.get(
+                task.get("model", DEFAULT_DEEP_RESEARCH_MODEL),
+                DEEP_RESEARCH_AGENTS[DEFAULT_DEEP_RESEARCH_MODEL],
+            )
+
+            # /revise handler queues a follow-up here so we kick off a new
+            # interaction with previous_interaction_id pointing at the latest
+            # plan turn rather than reconnecting to the planning interaction.
+            pending_revision = task.pop("pending_revision", None)
 
             # Check if we're resuming an existing interaction
             google_id = task.get("google_interaction_id")
             last_event_id = task.get("last_event_id")
 
-            if google_id and last_event_id:
+            if pending_revision is not None:
+                last_plan = task["plan_turns"][-1] if task.get("plan_turns") else None
+                previous_interaction_id = (
+                    last_plan.get("interaction_id") if last_plan else None
+                )
+                approve = bool(pending_revision.get("approve"))
+                is_planning_turn = not approve
+                feedback = (pending_revision.get("feedback") or "").strip()
+                if not feedback:
+                    feedback = (
+                        "Proceed with this plan."
+                        if approve
+                        else "Please revise the plan."
+                    )
+
+                if is_planning_turn:
+                    yield {"event": "status", "data": "Revising plan..."}
+                    task["status"] = "planning"
+                else:
+                    yield {
+                        "event": "status",
+                        "data": "Plan approved — starting research...",
+                    }
+                    task["status"] = "in_progress"
+
+                create_kwargs: dict = {
+                    "input": feedback,
+                    "agent": agent_id,
+                    "background": True,
+                    "stream": True,
+                    "agent_config": {
+                        "type": "deep-research",
+                        "thinking_summaries": "auto",
+                        "collaborative_planning": is_planning_turn,
+                    },
+                }
+                if previous_interaction_id:
+                    create_kwargs["previous_interaction_id"] = previous_interaction_id
+
+                # Reset IDs — the follow-up create returns a brand new
+                # interaction.
+                task["google_interaction_id"] = None
+                task["last_event_id"] = None
+
+                stream = client.interactions.create(**create_kwargs)
+            elif google_id and last_event_id:
                 # Resume existing interaction
                 yield {"event": "status", "data": "Resuming research..."}
-                stream = client.interactions.get(
-                    google_id, stream=True, last_event_id=last_event_id
-                )
+                is_planning_turn = task.get("status") == "planning"
+                try:
+                    stream = client.interactions.get(
+                        google_id, stream=True, last_event_id=last_event_id
+                    )
+                except Exception as resume_err:
+                    logger.warning(
+                        f"Resume-with-event-id failed, falling back to "
+                        f"final-results fetch: {resume_err}"
+                    )
+                    yield {
+                        "event": "status",
+                        "data": "Stream resume failed, fetching final results...",
+                    }
+                    stream = iter([])
             elif google_id:
                 # Reconnect to existing interaction without last_event_id
                 yield {"event": "status", "data": "Reconnecting to research..."}
-                stream = client.interactions.get(google_id, stream=True)
+                is_planning_turn = task.get("status") == "planning"
+                try:
+                    stream = client.interactions.get(google_id, stream=True)
+                except Exception as reconnect_err:
+                    logger.warning(
+                        f"Reconnect stream failed, falling back to "
+                        f"final-results fetch: {reconnect_err}"
+                    )
+                    yield {
+                        "event": "status",
+                        "data": "Stream reconnect failed, fetching final results...",
+                    }
+                    stream = iter([])
             else:
                 # Start new research with streaming enabled
-                yield {"event": "status", "data": "Starting deep research agent..."}
-                task["status"] = "in_progress"
+                use_planning = bool(task.get("collaborative_planning"))
+                is_planning_turn = use_planning
+
+                if use_planning:
+                    yield {
+                        "event": "status",
+                        "data": "Drafting research plan...",
+                    }
+                    task["status"] = "planning"
+                else:
+                    yield {
+                        "event": "status",
+                        "data": "Starting deep research agent...",
+                    }
+                    task["status"] = "in_progress"
 
                 stream = client.interactions.create(
                     input=task["prompt"],
-                    agent=DEEP_RESEARCH_AGENT,
+                    agent=agent_id,
                     background=True,
                     stream=True,
                     agent_config={
                         "type": "deep-research",
                         "thinking_summaries": "auto",
+                        "collaborative_planning": use_planning,
                     },
                 )
 
@@ -3929,8 +4046,15 @@ async def deep_research_stream(task_id: str, request: Request):
                             if delta_type == "text" and hasattr(delta, "text"):
                                 text = delta.text
                                 if text:
-                                    full_content += text
-                                    yield {"event": "content", "data": text}
+                                    if is_planning_turn:
+                                        plan_text += text
+                                        yield {
+                                            "event": "plan_chunk",
+                                            "data": text,
+                                        }
+                                    else:
+                                        full_content += text
+                                        yield {"event": "content", "data": text}
 
                             elif delta_type == "thought_summary":
                                 # Thinking summary
@@ -3958,8 +4082,15 @@ async def deep_research_stream(task_id: str, request: Request):
                                 # Fallback: delta with text but no type
                                 text = delta.text
                                 if text:
-                                    full_content += text
-                                    yield {"event": "content", "data": text}
+                                    if is_planning_turn:
+                                        plan_text += text
+                                        yield {
+                                            "event": "plan_chunk",
+                                            "data": text,
+                                        }
+                                    else:
+                                        full_content += text
+                                        yield {"event": "content", "data": text}
 
                             else:
                                 # Log unknown delta types for debugging
@@ -3993,11 +4124,9 @@ async def deep_research_stream(task_id: str, request: Request):
                     break
                 except Exception as stream_err:
                     error_str = str(stream_err)
+                    error_lower = error_str.lower()
                     # Check if it's a timeout - research may still be running
-                    if (
-                        "timeout" in error_str.lower()
-                        or "deadline" in error_str.lower()
-                    ):
+                    if "timeout" in error_lower or "deadline" in error_lower:
                         logger.warning(
                             f"Stream timeout, will check for completion: {stream_err}"
                         )
@@ -4006,13 +4135,58 @@ async def deep_research_stream(task_id: str, request: Request):
                             "data": "Connection timed out, checking research status...",
                         }
                         break
-                    else:
-                        raise
+                    # Treat any other Google-side stream error as a transient
+                    # problem and try to fetch final results instead of
+                    # failing the whole task. Common case: reconnecting to a
+                    # finished interaction returns an api_error.
+                    if google_id := task.get("google_interaction_id"):
+                        logger.warning(
+                            f"Stream errored, falling back to final-results "
+                            f"fetch for {google_id}: {stream_err}"
+                        )
+                        yield {
+                            "event": "status",
+                            "data": "Stream errored, fetching final results...",
+                        }
+                        break
+                    raise
 
             logger.info(
                 f"Stream processing complete. Total events: {event_count}, "
                 f"content length: {len(full_content)}"
             )
+
+            # If this was a planning turn, persist the plan and stop here —
+            # don't poll for final research results. The frontend will call
+            # /revise next and re-open this stream to either iterate on the
+            # plan or kick off the actual research.
+            if is_planning_turn:
+                google_id = task.get("google_interaction_id")
+                if not plan_text and google_id:
+                    # Stream may not have surfaced the plan as deltas — fall
+                    # back to fetching final outputs from the interaction.
+                    try:
+                        interaction = await loop.run_in_executor(
+                            None, lambda: client.interactions.get(google_id)
+                        )
+                        if interaction.outputs:
+                            final_output = interaction.outputs[-1]
+                            if hasattr(final_output, "text") and final_output.text:
+                                plan_text = final_output.text
+                                yield {"event": "plan_chunk", "data": plan_text}
+                    except Exception as plan_err:
+                        logger.warning(f"Failed to fetch planning output: {plan_err}")
+
+                task.setdefault("plan_turns", []).append(
+                    {
+                        "role": "agent",
+                        "text": plan_text,
+                        "interaction_id": google_id,
+                    }
+                )
+                task["status"] = "awaiting_plan_approval"
+                yield {"event": "plan_done", "data": plan_text}
+                return
 
             # Fetch final results - poll if research is still in progress
             google_id = task.get("google_interaction_id")
@@ -4142,7 +4316,13 @@ async def deep_research_stream(task_id: str, request: Request):
                             metadata={
                                 "query": task.get("query"),
                                 "sources": task.get("sources", []),
-                                "model": DEEP_RESEARCH_AGENT,
+                                "model": DEEP_RESEARCH_AGENTS.get(
+                                    task.get("model", DEFAULT_DEEP_RESEARCH_MODEL),
+                                    DEEP_RESEARCH_AGENTS[DEFAULT_DEEP_RESEARCH_MODEL],
+                                ),
+                                "model_tier": task.get(
+                                    "model", DEFAULT_DEEP_RESEARCH_MODEL
+                                ),
                             },
                         )
                     except Exception as artifact_err:
@@ -4160,6 +4340,36 @@ async def deep_research_stream(task_id: str, request: Request):
             yield {"event": "error", "data": str(e)}
 
     return EventSourceResponse(generate())
+
+
+@app.post("/api/deep-research/revise/{task_id}")
+async def deep_research_revise(task_id: str, request: DeepResearchReviseRequest):
+    """
+    Queue a plan revision or approval for a deep research task.
+
+    Sets `pending_revision` on the task; the client should immediately
+    re-open `/api/deep-research/stream/{task_id}` to either iterate on the
+    plan (approve=False) or kick off the actual research (approve=True).
+    """
+    task = _deep_research_tasks.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Research task not found")
+
+    if task.get("status") not in (
+        "awaiting_plan_approval",
+        "planning",
+        "failed",
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task is not awaiting plan revision (status={task.get('status')})",
+        )
+
+    task["pending_revision"] = {
+        "feedback": request.feedback,
+        "approve": request.approve,
+    }
+    return {"ok": True}
 
 
 @app.get("/api/deep-research/resume/{google_interaction_id}")

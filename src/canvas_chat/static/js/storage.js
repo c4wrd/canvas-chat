@@ -925,6 +925,7 @@ class Storage {
             flashcardStrictness: this.getFlashcardStrictness(),
             recentModels: this.getRecentModels(),
             customModels: this.getCustomModels(),
+            apiKeys: this.getApiKeys(),
         };
     }
 
@@ -941,6 +942,9 @@ class Storage {
         if (settings.flashcardStrictness !== undefined) this.setFlashcardStrictness(settings.flashcardStrictness);
         if (settings.customModels && Array.isArray(settings.customModels)) {
             localStorage.setItem('canvas-chat-custom-models', JSON.stringify(settings.customModels));
+        }
+        if (settings.apiKeys && typeof settings.apiKeys === 'object') {
+            this.saveApiKeys(settings.apiKeys);
         }
     }
 
