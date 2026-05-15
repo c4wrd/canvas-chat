@@ -67,8 +67,9 @@
 // =============================================================================
 
 const DB_NAME = 'canvas-chat';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const SESSIONS_STORE = 'sessions';
+const AGENT_CONFIGS_STORE = 'agentConfigs';
 const COPILOT_AUTH_KEY = 'canvas-chat-copilot-auth';
 
 /**
@@ -125,6 +126,13 @@ class Storage {
                     const store = db.createObjectStore(SESSIONS_STORE, { keyPath: 'id' });
                     store.createIndex('updated_at', 'updated_at', { unique: false });
                     store.createIndex('name', 'name', { unique: false });
+                }
+
+                // Create agentConfigs store (DB v2+)
+                if (!db.objectStoreNames.contains(AGENT_CONFIGS_STORE)) {
+                    const store = db.createObjectStore(AGENT_CONFIGS_STORE, { keyPath: 'id' });
+                    store.createIndex('slug', 'slug', { unique: true });
+                    store.createIndex('updated_at', 'updated_at', { unique: false });
                 }
             };
         });
@@ -235,6 +243,94 @@ class Storage {
                 console.warn('[Storage] Remote delete error:', err);
             });
         }
+    }
+
+    // --- Agent Configs (IndexedDB, DB v2+) ---
+
+    /**
+     * Slash command slugs that are reserved by built-in features and
+     * cannot be used for user-defined agents.
+     * @type {string[]}
+     */
+    static RESERVED_AGENT_SLUGS = [
+        'committee', 'matrix', 'factcheck', 'search', 'research', 'note',
+        'git', 'youtube', 'fetch', 'image', 'deep-research', 'branch',
+        'perplexity', 'perplexity-pro', 'perplexity-research',
+        'perplexity-agent', 'perplexity-search', 'agent',
+    ];
+
+    /**
+     * List all saved agent configs, sorted by updated_at descending.
+     * @returns {Promise<Array>}
+     */
+    async getAgentConfigs() {
+        const db = await this.ensureDB();
+        if (!db || !db.objectStoreNames.contains(AGENT_CONFIGS_STORE)) return [];
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(AGENT_CONFIGS_STORE, 'readonly');
+            const store = tx.objectStore(AGENT_CONFIGS_STORE);
+            const index = store.index('updated_at');
+            const request = index.openCursor(null, 'prev');
+            const configs = [];
+            request.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    configs.push(cursor.value);
+                    cursor.continue();
+                } else {
+                    resolve(configs);
+                }
+            };
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    /**
+     * Save (insert or update) an agent config. Validates slug uniqueness
+     * and rejects reserved built-in slugs.
+     * @param {Object} config
+     * @returns {Promise<Object>}
+     */
+    async saveAgentConfig(config) {
+        if (!config?.id) throw new Error('Agent config must have an id');
+        if (!config.slug) throw new Error('Agent config must have a slug');
+        const slug = String(config.slug).toLowerCase().trim();
+        if (Storage.RESERVED_AGENT_SLUGS.includes(slug)) {
+            throw new Error(`Slug "/${slug}" is reserved by a built-in command`);
+        }
+        config.slug = slug;
+        config.updated_at = Date.now();
+
+        const db = await this.ensureDB();
+        const existing = await this.getAgentConfigs();
+        const conflict = existing.find((c) => c.slug === slug && c.id !== config.id);
+        if (conflict) {
+            throw new Error(`Slug "/${slug}" is already used by "${conflict.name}"`);
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(AGENT_CONFIGS_STORE, 'readwrite');
+            const store = tx.objectStore(AGENT_CONFIGS_STORE);
+            const request = store.put(config);
+            request.onsuccess = () => resolve(config);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    /**
+     * Delete an agent config by id.
+     * @param {string} id
+     * @returns {Promise<void>}
+     */
+    async deleteAgentConfig(id) {
+        const db = await this.ensureDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(AGENT_CONFIGS_STORE, 'readwrite');
+            const store = tx.objectStore(AGENT_CONFIGS_STORE);
+            const request = store.delete(id);
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+        });
     }
 
     // --- Export/Import ---

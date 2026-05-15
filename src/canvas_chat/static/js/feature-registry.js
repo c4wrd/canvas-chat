@@ -20,6 +20,7 @@ import { HighlightFeature } from './plugins/highlight.js';
 import { DeepResearchFeature } from './plugins/deep-research.js';
 import { BranchFeature } from './plugins/branch.js';
 import { PerplexityFeature } from './plugins/perplexity.js';
+import { AgentsFeature } from './plugins/agents.js';
 
 /**
  * Priority levels for slash command resolution
@@ -212,6 +213,17 @@ class FeatureRegistry {
                     {
                         command: '/branch',
                         handler: 'handleCommand',
+                    },
+                ],
+                priority: PRIORITY.BUILTIN,
+            },
+            {
+                id: 'agents',
+                feature: AgentsFeature,
+                slashCommands: [
+                    {
+                        command: '/agent',
+                        handler: 'handleAgentCommand',
                     },
                 ],
                 priority: PRIORITY.BUILTIN,

@@ -46,6 +46,12 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from canvas_chat import __version__
+from canvas_chat.agents.models import (
+    AgentConfigsResponse,
+    AgentRunRequest,
+    AgentRunResponse,
+    AgentStatusResponse,
+)
 from canvas_chat.artifact_store import ArtifactStore
 from canvas_chat.config import AppConfig, is_github_copilot_enabled
 from canvas_chat.file_upload_registry import FileUploadRegistry
@@ -101,6 +107,24 @@ DEV_MODE = (
     or os.environ.get("CANVAS_CHAT_DEV_MODE") == "true"
 )
 SERVER_START_TIME = str(time.time())
+
+# In dev mode the browser polls /dev/reload ~1 Hz for hot reload, which
+# floods uvicorn's access log. Silence just that path; leave every other
+# request's access log untouched.
+if DEV_MODE:
+
+    class _SilenceDevReload(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            try:
+                args = record.args or ()
+                # Uvicorn access log shape: (client_addr, request_line, status, ...)
+                if len(args) >= 2 and "/dev/reload" in str(args[1]):
+                    return False
+            except Exception:
+                pass
+            return "/dev/reload" not in record.getMessage()
+
+    logging.getLogger("uvicorn.access").addFilter(_SilenceDevReload())
 
 app = FastAPI(title="Canvas Chat", version=__version__)
 
@@ -4563,6 +4587,75 @@ async def deep_research_finalize(google_interaction_id: str, api_key: str):
         logger.error(f"Deep research finalize failed: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# --- DeepAgents Endpoints ---
+
+
+@app.post("/api/agents/start")
+async def agents_start(request: AgentRunRequest) -> AgentRunResponse:
+    """Kick off a deep agent run.
+
+    The full AgentConfig is sent in the body; the server is stateless
+    about user configs. Returns a task_id usable with /stream, /status,
+    and /stop.
+    """
+    from canvas_chat.agents.runtime import start_run
+
+    # Apply admin-mode credential injection on the embedded model+keys.
+    # AgentRunRequest exposes the same model/api_key/base_url surface that
+    # inject_admin_credentials expects.
+    inject_admin_credentials(request)
+
+    task_id = start_run(request)
+    return AgentRunResponse(task_id=task_id, status="in_progress")
+
+
+@app.get("/api/agents/status/{task_id}")
+async def agents_status(task_id: str) -> AgentStatusResponse:
+    """Lightweight poll for an agent run's status."""
+    from canvas_chat.agents.runtime import get_status
+
+    info = get_status(task_id)
+    if info is None:
+        return AgentStatusResponse(task_id=task_id, status="not_found")
+    return AgentStatusResponse(**info)
+
+
+@app.get("/api/agents/stream/{task_id}")
+async def agents_stream(task_id: str):
+    """SSE stream of agent events.
+
+    Drains the per-task queue produced by ``runtime.start_run``. Safe to
+    reconnect mid-run as long as the task is still alive in
+    ``_agent_tasks``.
+    """
+    from canvas_chat.agents.runtime import stream_events
+
+    async def generate():
+        async for event in stream_events(task_id):
+            yield event
+
+    return EventSourceResponse(generate())
+
+
+@app.post("/api/agents/stop/{task_id}")
+async def agents_stop(task_id: str) -> dict[str, Any]:
+    """Cancel an in-flight agent run."""
+    from canvas_chat.agents.runtime import stop_run
+
+    cancelled = stop_run(task_id)
+    return {"task_id": task_id, "cancelled": cancelled}
+
+
+@app.get("/api/agents/configs")
+async def agents_configs() -> AgentConfigsResponse:
+    """Server-defined preset agents (admin-mode only).
+
+    In v1 normal mode this always returns an empty list — user configs
+    are owned client-side in IndexedDB/Firebase.
+    """
+    return AgentConfigsResponse(configs=[])
 
 
 # --- URL Fetch Endpoint ---

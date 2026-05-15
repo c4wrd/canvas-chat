@@ -39,6 +39,7 @@ import './plugins/search-node.js'; // Side-effect import for SearchNode plugin r
 import './plugins/summary.js'; // Side-effect import for SummaryNode plugin registration
 import './plugins/synthesis-node.js'; // Side-effect import for SynthesisNode plugin registration
 import './plugins/youtube-node.js'; // Side-effect import for YouTubeNode plugin registration
+import './plugins/agent-run-node.js'; // Side-effect import for AgentRunNode plugin registration
 // Note: poll.js is an external plugin - load via config.yaml
 import { extractExcerptText as _extractExcerptText } from './highlight-utils.js';
 import { wrapNode } from './node-protocols.js';

@@ -186,6 +186,24 @@ class ToolRegistry:
             return tools
 
     @classmethod
+    def get_langchain_tools(cls, tool_ids: list[str] | None = None) -> list[Any]:
+        """Get tools as LangChain StructuredTool instances.
+
+        Mirrors :meth:`get_openai_tools` but produces LangChain-compatible
+        callables for the deepagents framework. Imported lazily so the
+        LangChain dependency only loads when the agents path is taken.
+
+        Args:
+            tool_ids: Specific tool IDs to include, or None for all enabled tools.
+
+        Returns:
+            List of LangChain StructuredTool instances.
+        """
+        from canvas_chat.agents.tool_bridge import get_langchain_tools
+
+        return get_langchain_tools(tool_ids)
+
+    @classmethod
     async def execute_tool(
         cls, tool_id: str, arguments: dict[str, Any]
     ) -> dict[str, Any]:

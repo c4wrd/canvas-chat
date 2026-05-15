@@ -188,6 +188,7 @@ const NodeType = {
     CSV: 'csv', // Uploaded CSV data for analysis
     CODE: 'code', // Python code for execution
     PERPLEXITY: 'perplexity', // Perplexity AI web-grounded response
+    AGENT_RUN: 'agent_run', // DeepAgents run with todos, tool activity, and final report
 };
 
 /**
@@ -216,6 +217,7 @@ const DEFAULT_NODE_SIZES = {
     [NodeType.CSV]: { width: 640, height: 480 },
     [NodeType.CODE]: { width: 640, height: 400 },
     [NodeType.PERPLEXITY]: { width: 640, height: 480 },
+    [NodeType.AGENT_RUN]: { width: 700, height: 600 },
 
     // Small nodes (420x200) - User input, short content
     [NodeType.HUMAN]: { width: 420, height: 200 },
