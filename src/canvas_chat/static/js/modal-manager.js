@@ -32,6 +32,9 @@ class ModalManager {
         this.copilotVerificationUrl = null;
         this.copilotInterval = 5;
         this.copilotExpiresIn = 900;
+        this._renameSuggestionRequestId = 0;
+        this._renameSessionSuggestion = null;
+        this._renameSessionScope = 'all';
 
         this.updateCopilotStatus();
         this.app.loadModels();
@@ -403,8 +406,50 @@ class ModalManager {
         // Load flashcard strictness
         document.getElementById('flashcard-strictness').value = storage.getFlashcardStrictness();
 
+        // Populate fast-model select from currently loaded models in the main picker
+        this.populateFastModelSelect();
+
         // Render custom models list
         this.renderCustomModelsList();
+    }
+
+    /**
+     * Populate the fast-model <select> with the same options as the main model picker.
+     * Adds a leading "Default" option that maps to the empty string (clears the setting).
+     */
+    populateFastModelSelect() {
+        const select = document.getElementById('fast-model-select');
+        if (!select) return;
+
+        const mainPicker = document.getElementById('model-picker');
+        const current = localStorage.getItem('canvas-chat-fast-model') || '';
+
+        select.innerHTML = '';
+
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = 'Default (openai/gpt-4o-mini)';
+        select.appendChild(defaultOpt);
+
+        if (mainPicker) {
+            for (const opt of mainPicker.options) {
+                if (!opt.value || opt.disabled) continue;
+                const clone = document.createElement('option');
+                clone.value = opt.value;
+                clone.textContent = opt.textContent;
+                select.appendChild(clone);
+            }
+        }
+
+        // If the saved fast model isn't in the picker options, add it so the value sticks.
+        if (current && !Array.from(select.options).some((o) => o.value === current)) {
+            const opt = document.createElement('option');
+            opt.value = current;
+            opt.textContent = `${current} (saved)`;
+            select.appendChild(opt);
+        }
+
+        select.value = current;
     }
 
     /**
@@ -559,7 +604,14 @@ class ModalManager {
         }
 
         // Then check core app modals
-        const modalIds = ['edit-title-modal', 'edit-content-modal', 'session-modal', 'settings-modal', 'help-modal'];
+        const modalIds = [
+            'rename-session-modal',
+            'edit-title-modal',
+            'edit-content-modal',
+            'session-modal',
+            'settings-modal',
+            'help-modal',
+        ];
 
         for (const id of modalIds) {
             const modal = document.getElementById(id);
@@ -1069,6 +1121,127 @@ class ModalManager {
 
         this.app.saveSession();
         this.hideEditTitleModal();
+    }
+
+    // --- Rename Session Modal ---
+
+    /**
+     * Show the rename-session modal, pre-fill the input, and auto-fetch a suggestion.
+     * Scope is "selected" when nodes are selected on the canvas, otherwise "all".
+     */
+    showRenameSessionModal() {
+        const modal = document.getElementById('rename-session-modal');
+        const input = document.getElementById('rename-session-input');
+        const suggestionEl = document.getElementById('rename-session-suggestion');
+        const applyBtn = document.getElementById('rename-session-apply');
+        const scopeEl = document.getElementById('rename-session-scope');
+
+        if (!modal || !input || !suggestionEl || !applyBtn || !scopeEl) return;
+
+        const session = this.app.session;
+        input.value = (session && session.name) || '';
+
+        const selectedCount = this.app.canvas.getSelectedNodeIds().length;
+        const totalCount = this.app.graph.getAllNodes().length;
+        this._renameSessionScope = selectedCount > 0 ? 'selected' : 'all';
+
+        if (this._renameSessionScope === 'selected') {
+            scopeEl.textContent = `Based on ${selectedCount} selected node${selectedCount === 1 ? '' : 's'}.`;
+        } else {
+            scopeEl.textContent = `Based on all ${totalCount} node${totalCount === 1 ? '' : 's'}.`;
+        }
+
+        modal.style.display = 'flex';
+        input.focus();
+        input.select();
+
+        // Kick off auto-fetch of suggestion
+        this._loadRenameSessionSuggestion();
+    }
+
+    /**
+     * Hide the rename-session modal.
+     */
+    hideRenameSessionModal() {
+        const modal = document.getElementById('rename-session-modal');
+        if (modal) modal.style.display = 'none';
+        this._renameSessionSuggestion = null;
+    }
+
+    /**
+     * Fetch a suggested title and populate the suggestion row.
+     */
+    async _loadRenameSessionSuggestion() {
+        const suggestionEl = document.getElementById('rename-session-suggestion');
+        const applyBtn = document.getElementById('rename-session-apply');
+        const regenBtn = document.getElementById('rename-session-regen');
+        if (!suggestionEl || !applyBtn) return;
+
+        // Set loading state
+        suggestionEl.textContent = 'Generating…';
+        suggestionEl.classList.add('is-loading');
+        suggestionEl.classList.remove('is-error');
+        applyBtn.disabled = true;
+        if (regenBtn) regenBtn.disabled = true;
+        this._renameSessionSuggestion = null;
+
+        // Bail early if no content
+        if (this.app.graph.isEmpty()) {
+            suggestionEl.textContent = 'Add nodes to get a suggestion';
+            suggestionEl.classList.remove('is-loading');
+            if (regenBtn) regenBtn.disabled = false;
+            return;
+        }
+
+        const requestId = ++this._renameSuggestionRequestId;
+        try {
+            const result = await this.app.suggestSessionTitle({ scope: this._renameSessionScope });
+            // Ignore stale responses (e.g. user hit regenerate or closed modal)
+            if (requestId !== this._renameSuggestionRequestId) return;
+
+            this._renameSessionSuggestion = result.title;
+            suggestionEl.textContent = result.title;
+            suggestionEl.classList.remove('is-loading');
+            applyBtn.disabled = false;
+        } catch (err) {
+            if (requestId !== this._renameSuggestionRequestId) return;
+            console.error('Failed to suggest session title:', err);
+            suggestionEl.textContent = err.message || 'Failed to generate a suggestion';
+            suggestionEl.classList.remove('is-loading');
+            suggestionEl.classList.add('is-error');
+        } finally {
+            if (regenBtn) regenBtn.disabled = false;
+        }
+    }
+
+    /**
+     * Apply the current suggestion to the input field.
+     */
+    applyRenameSessionSuggestion() {
+        if (!this._renameSessionSuggestion) return;
+        const input = document.getElementById('rename-session-input');
+        if (!input) return;
+        input.value = this._renameSessionSuggestion;
+        input.focus();
+        input.select();
+    }
+
+    /**
+     * Save the session name from the input field.
+     */
+    saveRenameSession() {
+        const input = document.getElementById('rename-session-input');
+        if (!input) return;
+        const newName = input.value.trim();
+        if (!newName) {
+            input.focus();
+            return;
+        }
+
+        this.app.session.name = newName;
+        this.app.sessionName.textContent = newName;
+        this.app.saveSession();
+        this.hideRenameSessionModal();
     }
 
     // --- Canvas Event Registration ---

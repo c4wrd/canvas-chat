@@ -513,6 +513,55 @@ kbd {
     box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
+/* Rename Session suggestion row */
+.rename-session-suggestion-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 8px 10px;
+    background: var(--bg-secondary, rgba(0, 0, 0, 0.03));
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.rename-session-suggestion-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary, #666);
+    flex-shrink: 0;
+}
+
+.rename-session-suggestion-text {
+    flex: 1;
+    font-size: 14px;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.rename-session-suggestion-text.is-loading {
+    color: var(--text-secondary, #888);
+    font-style: italic;
+}
+
+.rename-session-suggestion-text.is-error {
+    color: #b91c1c;
+}
+
+.rename-session-suggestion-row .secondary-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+#rename-session-scope {
+    display: block;
+    margin-top: 8px;
+}
+
 /* Modal extra-wide variant (for editing large content) */
 .modal-extra-wide {
     max-width: 90vw;

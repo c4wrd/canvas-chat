@@ -1368,6 +1368,37 @@ class App {
             }
         });
 
+        // Rename session modal
+        document.getElementById('rename-session-close').addEventListener('click', () => {
+            this.modalManager.hideRenameSessionModal();
+        });
+        document.getElementById('rename-session-cancel').addEventListener('click', () => {
+            this.modalManager.hideRenameSessionModal();
+        });
+        document.getElementById('rename-session-save').addEventListener('click', () => {
+            this.modalManager.saveRenameSession();
+        });
+        document.getElementById('rename-session-apply').addEventListener('click', () => {
+            this.modalManager.applyRenameSessionSuggestion();
+        });
+        document.getElementById('rename-session-regen').addEventListener('click', () => {
+            this.modalManager._loadRenameSessionSuggestion();
+        });
+        document.getElementById('rename-session-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                this.modalManager.saveRenameSession();
+            } else if (e.key === 'Escape') {
+                this.modalManager.hideRenameSessionModal();
+            }
+        });
+        document.getElementById('rename-session-modal').addEventListener('click', (e) => {
+            // Click backdrop (outside modal-content) to close
+            if (e.target.id === 'rename-session-modal') {
+                this.modalManager.hideRenameSessionModal();
+            }
+        });
+
         // Edit title modal
         document.getElementById('edit-title-close').addEventListener('click', () => {
             this.modalManager.hideEditTitleModal();
@@ -4605,82 +4636,171 @@ print("Hello from Pyodide!")
      *
      */
     editSessionName() {
-        const newName = prompt('Session name:', this.session.name);
-        if (newName && newName.trim()) {
-            this.session.name = newName.trim();
-            this.sessionName.textContent = this.session.name;
-            this.saveSession();
-        }
+        this.modalManager.showRenameSessionModal();
     }
 
     /**
-     *
+     * Extract a short textual representation of a node for title generation.
+     * Returns null if the node has no useful text.
+     * @param {*} node
+     * @param {number} perNodeCap - Max characters from this node
+     * @returns {string|null}
+     */
+    _extractNodeTextForTitle(node, perNodeCap = 300) {
+        if (!node) return null;
+        const typeLabel = node.type || 'node';
+
+        /** @param {*} s */
+        const truncate = (s) => {
+            if (!s) return '';
+            const trimmed = String(s).replace(/\s+/g, ' ').trim();
+            return trimmed.length > perNodeCap ? trimmed.slice(0, perNodeCap) + '…' : trimmed;
+        };
+
+        let body = '';
+        switch (node.type) {
+            case NodeType.FLASHCARD: {
+                const q = node.question || '';
+                const a = node.answer || '';
+                body = `Q: ${q}\nA: ${a}`;
+                break;
+            }
+            case NodeType.MATRIX: {
+                const parts = [];
+                if (node.context) parts.push(node.context);
+                if (Array.isArray(node.rowItems) && node.rowItems.length) {
+                    parts.push(`rows: ${node.rowItems.slice(0, 5).join(', ')}`);
+                }
+                if (Array.isArray(node.colItems) && node.colItems.length) {
+                    parts.push(`cols: ${node.colItems.slice(0, 5).join(', ')}`);
+                }
+                body = parts.join(' | ');
+                break;
+            }
+            case NodeType.CELL:
+            case NodeType.ROW:
+            case NodeType.COLUMN: {
+                const parts = [];
+                if (node.rowItem) parts.push(node.rowItem);
+                if (node.colItem) parts.push(node.colItem);
+                if (node.content) parts.push(node.content);
+                body = parts.join(' — ');
+                break;
+            }
+            case NodeType.IMAGE: {
+                body = node.title || node.summary || 'image';
+                break;
+            }
+            default: {
+                body = node.content || node.title || node.summary || '';
+                break;
+            }
+        }
+
+        body = truncate(body);
+        if (!body) return null;
+        return `[${typeLabel}] ${body}`;
+    }
+
+    /**
+     * Generate a suggested session title using the configured fast model.
+     * @param {{scope?: 'selected'|'all'}} [opts]
+     * @returns {Promise<{title: string, scope: 'selected'|'all', nodeCount: number}>}
+     */
+    async suggestSessionTitle({ scope = 'all' } = {}) {
+        // Resolve target nodes
+        let nodes;
+        if (scope === 'selected') {
+            const selectedIds = this.canvas.getSelectedNodeIds();
+            nodes = selectedIds.map((id) => this.graph.getNode(id)).filter(Boolean);
+        } else {
+            nodes = this.graph.getAllNodes();
+        }
+
+        if (!nodes || nodes.length === 0) {
+            throw new Error(scope === 'selected' ? 'No nodes selected.' : 'No nodes to summarize.');
+        }
+
+        // Build content payload with per-node truncation and a total cap
+        const TOTAL_CAP = 6000;
+        const PER_NODE_CAP = 300;
+        const parts = [];
+        let total = 0;
+        for (const node of nodes) {
+            const entry = this._extractNodeTextForTitle(node, PER_NODE_CAP);
+            if (!entry) continue;
+            if (total + entry.length + 2 > TOTAL_CAP) {
+                parts.push('…');
+                break;
+            }
+            parts.push(entry);
+            total += entry.length + 2;
+        }
+
+        const content = parts.join('\n\n');
+        if (!content.trim()) {
+            throw new Error('Not enough content to generate a title.');
+        }
+
+        const fastModel = storage.getFastModel();
+        /** @type {{content: string, model: string, api_key?: string|null, base_url?: string|null}} */
+        const requestBody = {
+            content,
+            model: fastModel,
+        };
+        if (!this.adminMode) {
+            requestBody.api_key = chat.getApiKeyForModel(fastModel);
+            requestBody.base_url = chat.getBaseUrlForModel(fastModel);
+        }
+
+        const response = await fetch(apiUrl('/api/generate-title'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            throw new Error(`Failed to generate title: ${response.statusText}${text ? ` — ${text}` : ''}`);
+        }
+
+        const data = await response.json();
+        return { title: data.title, scope, nodeCount: nodes.length };
+    }
+
+    /**
+     * One-click "Generate Title" menu action: pick scope automatically (selection if any,
+     * otherwise all nodes), then apply the result directly to the session name.
      */
     async generateSessionTitle() {
-        // Check if there's any content to generate a title from
         if (this.graph.isEmpty()) {
             alert('Add some messages first to generate a title.');
             return;
         }
 
         const btn = document.getElementById('auto-title-btn');
-        const originalContent = btn.textContent;
+        const originalContent = btn ? btn.textContent : '';
 
         try {
-            // Show loading state
-            btn.textContent = 'Generating Title...';
-            btn.disabled = true;
-
-            // Gather content from root nodes and their immediate replies
-            const nodes = this.graph.getAllNodes();
-            const contentParts = [];
-
-            // Get first few nodes (prioritize human messages)
-            const humanNodes = nodes.filter((n) => n.type === NodeType.HUMAN);
-            const aiNodes = nodes.filter((n) => n.type === NodeType.AI);
-
-            // Take first 3 human messages and first 2 AI responses
-            for (const node of humanNodes.slice(0, 3)) {
-                contentParts.push(`User: ${node.content.slice(0, 200)}`);
-            }
-            for (const node of aiNodes.slice(0, 2)) {
-                contentParts.push(`Assistant: ${node.content.slice(0, 200)}`);
+            if (btn) {
+                btn.textContent = 'Generating Title...';
+                btn.disabled = true;
             }
 
-            const content = contentParts.join('\n\n');
+            const scope = this.canvas.getSelectedNodeIds().length > 0 ? 'selected' : 'all';
+            const { title } = await this.suggestSessionTitle({ scope });
 
-            if (!content.trim()) {
-                alert('Not enough content to generate a title.');
-                return;
-            }
-
-            const requestBody = this.buildLLMRequest({
-                content,
-            });
-
-            const response = await fetch(apiUrl('/api/generate-title'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestBody),
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to generate title: ${response.statusText}`);
-            }
-
-            const data = await response.json();
-
-            // Update session name
-            this.session.name = data.title;
-            this.sessionName.textContent = data.title;
+            this.session.name = title;
+            this.sessionName.textContent = title;
             this.saveSession();
         } catch (err) {
             console.error('Failed to generate title:', err);
             alert(`Failed to generate title: ${err.message}`);
         } finally {
-            // Restore button
-            btn.textContent = originalContent;
-            btn.disabled = false;
+            if (btn) {
+                btn.textContent = originalContent;
+                btn.disabled = false;
+            }
         }
     }
 
@@ -5565,6 +5685,10 @@ print("Hello from Pyodide!")
         // Save flashcard strictness
         const strictness = document.getElementById('flashcard-strictness').value;
         storage.setFlashcardStrictness(strictness);
+
+        // Save fast model
+        const fastModel = document.getElementById('fast-model-select').value;
+        storage.setFastModel(fastModel);
 
         // Reload models to reflect newly configured API keys
         this.loadModels();

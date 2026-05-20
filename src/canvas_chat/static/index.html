@@ -498,6 +498,22 @@
                         </div>
                     </div>
 
+                    <div class="settings-section">
+                        <h3>Fast Model</h3>
+                        <p class="settings-note">
+                            Used for cheap background tasks like auto-naming sessions and node summaries.
+                        </p>
+                        <div class="api-key-group">
+                            <label for="fast-model-select">Fast model (titles & summaries)</label>
+                            <select id="fast-model-select" class="settings-select">
+                                <option value="">Default (openai/gpt-4o-mini)</option>
+                            </select>
+                            <small class="key-hint"
+                                >Pick a small, fast model. Falls back to <code>openai/gpt-4o-mini</code> if unset.</small
+                            >
+                        </div>
+                    </div>
+
                     <h3>Flashcard Settings</h3>
                     <p class="settings-note">Configure how flashcard answers are graded during review.</p>
 
@@ -783,6 +799,50 @@
         </div>
 
         <!-- Committee Modal - Now registered by committee.js plugin -->
+
+        <!-- Rename Session Modal -->
+        <div id="rename-session-modal" class="modal" style="display: none">
+            <div class="modal-content modal-narrow">
+                <div class="modal-header">
+                    <h2>Rename Session</h2>
+                    <button class="modal-close" id="rename-session-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <input
+                        type="text"
+                        id="rename-session-input"
+                        class="modal-text-input"
+                        placeholder="Session name"
+                    />
+                    <div class="rename-session-suggestion-row" id="rename-session-suggestion-row">
+                        <span class="rename-session-suggestion-label">Suggested:</span>
+                        <span id="rename-session-suggestion" class="rename-session-suggestion-text">Generating…</span>
+                        <button
+                            type="button"
+                            id="rename-session-apply"
+                            class="secondary-btn"
+                            disabled
+                            title="Use suggested title"
+                        >
+                            Apply
+                        </button>
+                        <button
+                            type="button"
+                            id="rename-session-regen"
+                            class="secondary-btn"
+                            title="Regenerate suggestion"
+                        >
+                            ↻
+                        </button>
+                    </div>
+                    <small class="key-hint" id="rename-session-scope">&nbsp;</small>
+                </div>
+                <div class="modal-actions">
+                    <button class="secondary-btn" id="rename-session-cancel">Cancel</button>
+                    <button class="primary-btn" id="rename-session-save">Save</button>
+                </div>
+            </div>
+        </div>
 
         <!-- Edit Title Modal -->
         <div id="edit-title-modal" class="modal" style="display: none">

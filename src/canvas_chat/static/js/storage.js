@@ -766,6 +766,26 @@ class Storage {
     }
 
     /**
+     * Get the fast/cheap model used for titles & summaries.
+     * @returns {string}
+     */
+    getFastModel() {
+        return localStorage.getItem('canvas-chat-fast-model') || 'openai/gpt-4o-mini';
+    }
+
+    /**
+     * Set the fast/cheap model. Pass empty/null to clear (falls back to default).
+     * @param {string|null} model
+     */
+    setFastModel(model) {
+        if (model && model.trim()) {
+            localStorage.setItem('canvas-chat-fast-model', model.trim());
+        } else {
+            localStorage.removeItem('canvas-chat-fast-model');
+        }
+    }
+
+    /**
      * Get the last active session ID
      * @returns {string|null}
      */
