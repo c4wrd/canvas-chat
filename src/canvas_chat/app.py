@@ -3886,6 +3886,7 @@ async def deep_research_stream(task_id: str, request: Request):
 
             full_content = ""
             plan_text = ""
+            already_finalized = False
 
             agent_id = DEEP_RESEARCH_AGENTS.get(
                 task.get("model", DEFAULT_DEEP_RESEARCH_MODEL),
@@ -4072,6 +4073,11 @@ async def deep_research_stream(task_id: str, request: Request):
                                 if text:
                                     if is_planning_turn:
                                         plan_text += text
+                                        # Also retain in full_content so we can
+                                        # recover the report if the model ran
+                                        # end-to-end instead of pausing for a
+                                        # plan.
+                                        full_content += text
                                         yield {
                                             "event": "plan_chunk",
                                             "data": text,
@@ -4108,6 +4114,7 @@ async def deep_research_stream(task_id: str, request: Request):
                                 if text:
                                     if is_planning_turn:
                                         plan_text += text
+                                        full_content += text
                                         yield {
                                             "event": "plan_chunk",
                                             "data": text,
@@ -4180,41 +4187,100 @@ async def deep_research_stream(task_id: str, request: Request):
                 f"content length: {len(full_content)}"
             )
 
-            # If this was a planning turn, persist the plan and stop here —
-            # don't poll for final research results. The frontend will call
-            # /revise next and re-open this stream to either iterate on the
-            # plan or kick off the actual research.
+            # If this was a planning turn, decide between two outcomes:
+            #   (a) Google actually paused for a plan — persist plan_turns and
+            #       hand off to the user via awaiting_plan_approval.
+            #   (b) Google ran the research end-to-end despite the
+            #       collaborative_planning flag — fall through to the
+            #       completion branch so the captured text becomes the report.
+            # The decision is based on Google's interaction state, not on the
+            # request flag, because the model has been observed to ignore
+            # plan-pause and produce a full report in one interaction.
             if is_planning_turn:
                 google_id = task.get("google_interaction_id")
-                if not plan_text and google_id:
-                    # Stream may not have surfaced the plan as deltas — fall
-                    # back to fetching final outputs from the interaction.
+                interaction = None
+                if google_id:
                     try:
                         interaction = await loop.run_in_executor(
                             None, lambda: client.interactions.get(google_id)
                         )
-                        if interaction.outputs:
-                            final_output = interaction.outputs[-1]
-                            if hasattr(final_output, "text") and final_output.text:
-                                plan_text = final_output.text
-                                yield {"event": "plan_chunk", "data": plan_text}
                     except Exception as plan_err:
-                        logger.warning(f"Failed to fetch planning output: {plan_err}")
+                        logger.warning(
+                            f"Failed to fetch interaction for plan/report "
+                            f"decision: {plan_err}"
+                        )
 
-                task.setdefault("plan_turns", []).append(
-                    {
-                        "role": "agent",
-                        "text": plan_text,
-                        "interaction_id": google_id,
-                    }
+                if not plan_text and interaction is not None and interaction.outputs:
+                    # Stream didn't surface deltas — pull final output text.
+                    final_output = interaction.outputs[-1]
+                    if hasattr(final_output, "text") and final_output.text:
+                        fallback_text = final_output.text
+                        plan_text = fallback_text
+                        # Keep full_content in sync so the completion branch
+                        # below has the report text to emit if we decide this
+                        # was a real completion.
+                        if not full_content:
+                            full_content = fallback_text
+                        yield {"event": "plan_chunk", "data": fallback_text}
+
+                # Signal that the model produced a report rather than a plan.
+                interaction_status = (
+                    getattr(interaction, "status", None) if interaction else None
                 )
-                task["status"] = "awaiting_plan_approval"
-                yield {"event": "plan_done", "data": plan_text}
-                return
+                has_sources = bool(
+                    interaction and getattr(interaction, "sources", None)
+                )
+                looks_like_report = len(full_content) > 2000 and "## " in full_content
+                ran_to_completion = interaction_status == "completed" and (
+                    has_sources or looks_like_report
+                )
 
-            # Fetch final results - poll if research is still in progress
+                if not ran_to_completion:
+                    task.setdefault("plan_turns", []).append(
+                        {
+                            "role": "agent",
+                            "text": plan_text,
+                            "interaction_id": google_id,
+                        }
+                    )
+                    task["status"] = "awaiting_plan_approval"
+                    yield {"event": "plan_done", "data": plan_text}
+                    return
+
+                # Treat as a completed research run: emit the captured text as
+                # report content so the frontend populates node.content, then
+                # fall through to the source-extraction / completion logic.
+                logger.info(
+                    "Planning turn produced a full report — routing as "
+                    "completion (content length=%d, has_sources=%s)",
+                    len(full_content),
+                    has_sources,
+                )
+                is_planning_turn = False
+                if full_content:
+                    yield {"event": "content", "data": full_content}
+                if has_sources:
+                    sources = []
+                    for s in interaction.sources:
+                        source = {}
+                        if hasattr(s, "title"):
+                            source["title"] = s.title
+                        if hasattr(s, "url"):
+                            source["url"] = s.url
+                        elif hasattr(s, "uri"):
+                            source["url"] = s.uri
+                        if source.get("url"):
+                            sources.append(source)
+                    if sources:
+                        task["sources"] = sources
+                        yield {"event": "sources", "data": json.dumps(sources)}
+                already_finalized = True
+
+            # Fetch final results - poll if research is still in progress.
+            # Skip if the planning-turn branch above already emitted content
+            # and sources after fetching the completed interaction.
             google_id = task.get("google_interaction_id")
-            if google_id:
+            if google_id and not already_finalized:
                 max_poll_attempts = 30  # Poll for up to 5 more minutes (10s intervals)
                 poll_attempt = 0
 

@@ -146,6 +146,9 @@ class DeepResearchNode extends BaseNode {
                             <button class="secondary-btn deep-research-plan-revise-btn">Revise plan</button>
                             <button class="primary-btn deep-research-plan-approve-btn">Approve & Run</button>
                         </div>
+                        <button class="link-btn deep-research-plan-promote-btn" title="If the agent already produced a full report instead of a plan, use the captured text as the report.">
+                            Use captured text as report
+                        </button>
                     </div>
                 `;
             }
@@ -239,6 +242,12 @@ class DeepResearchNode extends BaseNode {
                     const textarea = root?.querySelector('.deep-research-plan-feedback');
                     const feedback = textarea?.value?.trim() || '';
                     canvas.emit('deepResearchPlanApprove', nodeId, { feedback });
+                },
+            },
+            {
+                selector: '.deep-research-plan-promote-btn',
+                handler: (nodeId, e, canvas) => {
+                    canvas.emit('deepResearchPlanPromote', nodeId, {});
                 },
             },
         ];

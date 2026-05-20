@@ -61,6 +61,9 @@ class DeepResearchFeature extends FeaturePlugin {
         this.canvas.on('deepResearchPlanApprove', async (nodeId, payload) => {
             await this.submitPlanRevision(nodeId, payload?.feedback || '', true);
         });
+        this.canvas.on('deepResearchPlanPromote', async (nodeId) => {
+            await this.promotePlanToReport(nodeId);
+        });
     }
 
     /**
@@ -712,9 +715,28 @@ class DeepResearchFeature extends FeaturePlugin {
                     // Clean up streaming state
                     this.streamingManager.unregister(nodeId);
 
-                    // Planning turn completed — leave the node in
-                    // awaiting_plan_approval and let the user revise/approve.
-                    if (planCompleted) {
+                    // If a plan_done arrived alongside actual report content or
+                    // sources, the model ran end-to-end instead of pausing for
+                    // a plan. Promote the captured text into node.content and
+                    // fall through to the normal completion path.
+                    const reportPrefixLen = `**Deep Research:** ${query}\n\n`.length;
+                    const gotReportContent = reportContent.length > reportPrefixLen;
+                    if (planCompleted && (sources.length > 0 || gotReportContent)) {
+                        const latestPlanText = planTurns?.length
+                            ? planTurns[planTurns.length - 1]?.text
+                            : '';
+                        if (!gotReportContent && latestPlanText) {
+                            reportContent = `**Deep Research:** ${query}\n\n${latestPlanText}`;
+                        }
+                        planCompleted = false;
+                        this.graph.updateNode(nodeId, {
+                            planTurns: [],
+                            status: 'in_progress',
+                            content: reportContent,
+                        });
+                    } else if (planCompleted) {
+                        // Real plan-pause — leave node in awaiting_plan_approval
+                        // for the user to revise/approve.
                         this.saveSession();
                         return;
                     }
@@ -806,6 +828,46 @@ class DeepResearchFeature extends FeaturePlugin {
             }
             this.saveSession();
         }
+    }
+
+    /**
+     * Recover a research report whose text the model produced during what was
+     * supposed to be a planning turn. Promotes the latest agent plan turn's
+     * text into the node's report content and clears the plan-review state.
+     * @param {string} nodeId
+     */
+    async promotePlanToReport(nodeId) {
+        const node = this.graph.getNode(nodeId);
+        if (!node) return;
+
+        const turns = Array.isArray(node.planTurns) ? node.planTurns : [];
+        let latestAgentText = '';
+        for (let i = turns.length - 1; i >= 0; i--) {
+            if (turns[i]?.role === 'agent' && turns[i]?.text) {
+                latestAgentText = turns[i].text;
+                break;
+            }
+        }
+
+        if (!latestAgentText) {
+            this.showToast?.('No captured text to promote.', 'error');
+            return;
+        }
+
+        const queryLine = node.content?.split('\n')[0] || `**Deep Research:** ${node.query || ''}`;
+        const reportContent = `${queryLine}\n\n${latestAgentText}`;
+
+        this.graph.updateNode(nodeId, {
+            content: reportContent,
+            status: 'completed',
+            planTurns: [],
+            completedAt: Date.now(),
+        });
+        this.canvas.updateNodeContent(nodeId, reportContent, false);
+        this.canvas.renderNode(this.graph.getNode(nodeId));
+        this.clearResumableState(nodeId);
+        this.generateNodeSummary?.(nodeId);
+        this.saveSession?.();
     }
 
     /**
@@ -1270,7 +1332,24 @@ class DeepResearchFeature extends FeaturePlugin {
                 },
                 onDone: () => {
                     this.streamingManager.unregister(nodeId);
-                    if (planCompleted) {
+                    // If plan_done arrived alongside actual content (model
+                    // ran end-to-end despite collaborative_planning), promote
+                    // the captured text into the report and fall through to
+                    // the completion path.
+                    const refreshedNode = this.graph.getNode(nodeId);
+                    const sourcesAvail = (refreshedNode?.sources || []).length > 0;
+                    const queryPrefixLen = `**Deep Research:** ${query}\n\n`.length;
+                    const gotReportContent = reportContent.length > queryPrefixLen;
+                    if (planCompleted && (sourcesAvail || gotReportContent)) {
+                        const latestPlanText = planTurns?.length
+                            ? planTurns[planTurns.length - 1]?.text
+                            : '';
+                        if (!gotReportContent && latestPlanText) {
+                            reportContent = `**Deep Research:** ${query}\n\n${latestPlanText}`;
+                        }
+                        planCompleted = false;
+                        this.graph.updateNode(nodeId, { planTurns: [], content: reportContent });
+                    } else if (planCompleted) {
                         // Awaiting user revision/approval — keep resumable
                         // state so a refresh re-renders the node correctly.
                         this.saveSession();
