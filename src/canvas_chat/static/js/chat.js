@@ -299,6 +299,26 @@ class Chat {
     }
 
     /**
+     * Get or create a stable per-browser-session chat id for trace correlation.
+     * Used as `chat_id` on outgoing /api/chat requests so all messages in one
+     * browser session group together in LangSmith.
+     */
+    _getOrCreateChatId() {
+        try {
+            const KEY = 'canvasChat.chatId';
+            let id = sessionStorage.getItem(KEY);
+            if (!id) {
+                id = (crypto?.randomUUID && crypto.randomUUID()) ||
+                    `chat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+                sessionStorage.setItem(KEY, id);
+            }
+            return id;
+        } catch (_e) {
+            return null;
+        }
+    }
+
+    /**
      * Send a chat message and stream the response
      * @param {Array<ChatMessage>} messages - Array of {role, content} messages
      * @param {string} model - Model ID (e.g., "openai/gpt-4o")
@@ -339,6 +359,8 @@ class Chat {
             onToolCall = options.onToolCall || null;
             onToolResult = options.onToolResult || null;
         }
+        const nodeId = options?.nodeId || null;
+        const chatId = options?.chatId || this._getOrCreateChatId();
 
         const apiKey = await this.ensureCopilotAuthFresh(model);
         const baseUrl = this.getBaseUrl();
@@ -349,6 +371,8 @@ class Chat {
             api_key: apiKey,
             temperature: 0.3,
         };
+        if (nodeId) requestBody.node_id = nodeId;
+        if (chatId) requestBody.chat_id = chatId;
 
         if (baseUrl) {
             requestBody.base_url = baseUrl;

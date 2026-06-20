@@ -100,6 +100,47 @@ if litellm_log_level:
     elif litellm_log_level == "ERROR":
         litellm_logger.setLevel(logging.ERROR)
 
+# LangSmith observability — auto-enable if LANGSMITH_API_KEY is set.
+# When unset, langsmith is never imported and there is zero runtime cost.
+LANGSMITH_ENABLED = bool(os.environ.get("LANGSMITH_API_KEY"))
+if LANGSMITH_ENABLED:
+    os.environ.setdefault("LANGSMITH_PROJECT", "canvas-chat")
+    os.environ.setdefault("LANGSMITH_TRACING", "true")
+    litellm.callbacks = ["langsmith"]
+    litellm.success_callback = ["langsmith"]
+    litellm.failure_callback = ["langsmith"]
+    logger.info(
+        "LangSmith tracing enabled (project=%s)",
+        os.environ["LANGSMITH_PROJECT"],
+    )
+else:
+    logger.info("LangSmith tracing disabled (set LANGSMITH_API_KEY to enable)")
+
+
+def maybe_traceable(name: str, run_type: str = "chain"):
+    """Apply langsmith @traceable when LANGSMITH_ENABLED, else no-op decorator."""
+    if not LANGSMITH_ENABLED:
+        return lambda fn: fn
+    from langsmith import traceable
+
+    return traceable(name=name, run_type=run_type)
+
+
+def _trace_metadata(endpoint: str, request: Any = None, **extra: Any) -> dict:
+    """Build a metadata dict for LangSmith traces / litellm metadata kwarg."""
+    md: dict[str, Any] = {"endpoint": endpoint}
+    if request is not None:
+        for attr in ("node_id", "chat_id", "model", "reasoning_effort"):
+            val = getattr(request, attr, None)
+            if val is not None:
+                md[attr] = val
+        if getattr(request, "enable_tools", False):
+            tools = getattr(request, "tools", None) or []
+            md["tools_enabled"] = list(tools)
+    md.update({k: v for k, v in extra.items() if v is not None})
+    return md
+
+
 # Dev mode detection and live reload support
 # Uvicorn sets this env var when running with --reload
 DEV_MODE = (
@@ -330,6 +371,9 @@ class ChatRequest(BaseModel):
     enable_tools: bool = False
     tools: list[str] | None = None  # Specific tool IDs, or None for all enabled
     max_tool_iterations: int = 10
+    # Observability metadata (optional, used for LangSmith traces)
+    node_id: str | None = None
+    chat_id: str | None = None
 
 
 class SummarizeRequest(BaseModel):
@@ -339,6 +383,8 @@ class SummarizeRequest(BaseModel):
     model: str = "openai/gpt-4o-mini"
     api_key: str | None = None
     base_url: str | None = None
+    node_id: str | None = None
+    chat_id: str | None = None
 
 
 class CopilotAuthStartResponse(BaseModel):
@@ -593,6 +639,8 @@ class CommitteeRequest(BaseModel):
     api_keys: dict[str, str]  # Provider -> API key mapping
     base_url: str | None = None
     include_review: bool = False  # Whether to include review/ranking stage
+    node_id: str | None = None
+    chat_id: str | None = None
 
 
 # --- Model Registry ---
@@ -1771,6 +1819,11 @@ async def chat(request: ChatRequest, http_request: Request):
             kwargs["tools"] = openai_tools
             kwargs["tool_choice"] = "auto"
 
+    # LangSmith metadata — attached to every litellm call in this request.
+    # Each agentic-loop iteration becomes a separate trace tagged with the
+    # same chat_id/node_id, so they're trivially groupable in the LangSmith UI.
+    kwargs["metadata"] = _trace_metadata("chat", request)
+
     async def generate():
         """Generate SSE events from the LLM stream with optional tool calling loop."""
         try:
@@ -1788,8 +1841,12 @@ async def chat(request: ChatRequest, http_request: Request):
                     }
                     break
 
-                # Update messages in kwargs
-                loop_kwargs = {**kwargs, "messages": messages}
+                # Update messages in kwargs (with per-iteration metadata)
+                loop_kwargs = {
+                    **kwargs,
+                    "messages": messages,
+                    "metadata": {**kwargs["metadata"], "iteration": iteration},
+                }
 
                 response = await litellm.acompletion(**loop_kwargs)
 
@@ -1994,6 +2051,7 @@ Summary:"""
         "messages": [{"role": "user", "content": summary_prompt}],
         "temperature": 0.3,  # Lower temperature for more consistent summaries
         "max_tokens": 500,
+        "metadata": _trace_metadata("summarize", request),
     }
 
     if request.api_key:
@@ -2122,6 +2180,8 @@ class RefineQueryRequest(BaseModel):
     model: str = "openai/gpt-4o-mini"
     api_key: str | None = None
     base_url: str | None = None
+    node_id: str | None = None
+    chat_id: str | None = None
 
 
 class RefinedQueryOutput(BaseModel):
@@ -2223,6 +2283,9 @@ Examples:
             ],
             "temperature": 0.3,
             "max_tokens": 150,
+            "metadata": _trace_metadata(
+                "refine_query", request, command_type=request.command_type
+            ),
         }
 
         # Add API key if provided
@@ -2311,6 +2374,8 @@ class ImageGenerationRequest(BaseModel):
     n: int = 1  # Number of images to generate
     api_key: str | None = None  # User's API key
     base_url: str | None = None  # Optional base URL
+    node_id: str | None = None
+    chat_id: str | None = None
 
 
 @app.post("/api/generate-image")
@@ -2347,6 +2412,9 @@ async def generate_image(request: ImageGenerationRequest):
             n=request.n,
             api_key=request.api_key,
             api_base=request.base_url,
+            metadata=_trace_metadata(
+                "generate_image", request, size=request.size, quality=request.quality
+            ),
         )
 
         # Log the response for debugging
@@ -5146,6 +5214,8 @@ class GenerateTitleRequest(BaseModel):
     model: str = "openai/gpt-4o-mini"
     api_key: str | None = None
     base_url: str | None = None
+    node_id: str | None = None
+    chat_id: str | None = None
 
 
 class GenerateSummaryRequest(BaseModel):
@@ -5155,6 +5225,8 @@ class GenerateSummaryRequest(BaseModel):
     model: str = "openai/gpt-4o-mini"
     api_key: str | None = None
     base_url: str | None = None
+    node_id: str | None = None
+    chat_id: str | None = None
 
 
 @app.post("/api/generate-title")
@@ -5205,6 +5277,7 @@ Examples of good titles:
             ],
             "temperature": 0.7,
             "max_tokens": 50,
+            "metadata": _trace_metadata("generate_title", request),
         }
 
         api_key = get_api_key_for_provider(provider, request.api_key)
@@ -5364,6 +5437,7 @@ async def stream_single_opinion(
     api_key: str | None,
     base_url: str | None,
     queue: asyncio.Queue,
+    trace_metadata: dict | None = None,
 ):
     """Stream a single committee member's opinion to the queue."""
     try:
@@ -5392,6 +5466,12 @@ async def stream_single_opinion(
             "messages": messages,
             "temperature": 0.7,
             "stream": True,
+            "metadata": {
+                **(trace_metadata or {"endpoint": "committee"}),
+                "phase": "opinion",
+                "committee_index": index,
+                "model": model,
+            },
         }
 
         if api_key:
@@ -5440,6 +5520,7 @@ async def stream_single_review(
     api_key: str | None,
     base_url: str | None,
     queue: asyncio.Queue,
+    trace_metadata: dict | None = None,
 ):
     """Stream a single committee member's review of other opinions."""
     try:
@@ -5485,6 +5566,12 @@ Please review and rank these opinions.""",
             "messages": messages,
             "temperature": 0.5,
             "stream": True,
+            "metadata": {
+                **(trace_metadata or {"endpoint": "committee"}),
+                "phase": "review",
+                "reviewer_index": reviewer_index,
+                "model": reviewer_model,
+            },
         }
 
         if api_key:
@@ -5560,6 +5647,9 @@ async def committee(request: CommitteeRequest):
             status_code=400, detail="Maximum 5 committee models allowed"
         )
 
+    # Build base trace metadata once; opinion/review/synthesis all share it
+    base_md = _trace_metadata("committee", request)
+
     async def generate():
         try:
             # Convert context messages to dicts
@@ -5580,6 +5670,7 @@ async def committee(request: CommitteeRequest):
                         api_key=api_key,
                         base_url=request.base_url,
                         queue=queue,
+                        trace_metadata=base_md,
                     )
                 )
                 opinion_tasks.append(task)
@@ -5647,6 +5738,7 @@ async def committee(request: CommitteeRequest):
                             api_key=api_key,
                             base_url=request.base_url,
                             queue=review_queue,
+                            trace_metadata=base_md,
                         )
                     )
                     review_tasks.append(task)
@@ -5745,6 +5837,11 @@ Provide your own assessment of the most accurate and helpful response."""
                 ],
                 "temperature": 0.5,
                 "stream": True,
+                "metadata": {
+                    **base_md,
+                    "phase": "synthesis",
+                    "model": request.chairman_model,
+                },
             }
 
             if chairman_api_key:

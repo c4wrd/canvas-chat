@@ -1836,6 +1836,7 @@ class App {
         const toolsEnabled = storage.getToolsEnabled();
         const enabledTools = storage.getEnabledTools();
         const temperature = storage.getTemperature();
+        const chatId = chat?._getOrCreateChatId?.() || null;
 
         // In admin mode, backend handles credentials
         if (this.adminMode) {
@@ -1855,6 +1856,7 @@ class App {
                     request.tools = enabledTools;
                 }
             }
+            if (chatId && !request.chat_id) request.chat_id = chatId;
             return request;
         }
 
@@ -1883,6 +1885,7 @@ class App {
             }
         }
 
+        if (chatId && !request.chat_id) request.chat_id = chatId;
         return request;
     }
 
@@ -4056,6 +4059,7 @@ print("Hello from Pyodide!")
         try {
             const requestBody = this.buildLLMRequest({
                 messages,
+                node_id: nodeId,
             });
 
             const response = await fetch(apiUrl('/api/chat'), {

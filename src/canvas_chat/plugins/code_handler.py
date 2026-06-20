@@ -40,6 +40,8 @@ class GenerateCodeRequest(BaseModel):
     model: str = "anthropic/claude-sonnet-4-20250514"
     api_key: str | None = None
     base_url: str | None = None
+    node_id: str | None = None
+    chat_id: str | None = None
 
 
 # =============================================================================
@@ -77,6 +79,7 @@ def register_endpoints(app):
         try:
             # Import here to avoid circular imports
             from canvas_chat.app import (
+                _trace_metadata,
                 extract_provider,
                 get_api_key_for_provider,
                 litellm,
@@ -167,6 +170,7 @@ def register_endpoints(app):
                 "messages": messages,
                 "temperature": 0.3,  # Lower temperature for code generation
                 "stream": True,
+                "metadata": _trace_metadata("generate_code", request),
             }
 
             if api_key:

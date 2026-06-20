@@ -9,6 +9,9 @@ uv = "latest"
 
 [env]
 UV_PYTHON_PREFERENCE = "only-managed"
+# Load secrets / per-developer overrides from .env (gitignored). Later files
+# win — .env.local can override .env for local-only tweaks.
+_.file = [".env", ".env.local"]
 
 [tasks.dev]
 description = "Run development server with hot reload for Python and JS/CSS"

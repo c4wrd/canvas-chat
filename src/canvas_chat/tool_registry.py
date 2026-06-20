@@ -35,11 +35,15 @@ Usage:
 """
 
 import logging
+import os
 from typing import Any, ClassVar
 
 from canvas_chat.tool_plugin import ToolPlugin
 
 logger = logging.getLogger(__name__)
+
+# LangSmith tool tracing — no-op when LANGSMITH_API_KEY is unset.
+_LANGSMITH_ENABLED = bool(os.environ.get("LANGSMITH_API_KEY"))
 
 # Priority levels for tools (higher priority = preferred)
 PRIORITY = {
@@ -224,7 +228,17 @@ class ToolRegistry:
         if not instance:
             raise ValueError(f"Tool not found: {tool_id}")
 
-        return await instance.execute(**arguments)
+        # Wrap with langsmith traceable on the fly so the span is named per-tool
+        # (e.g., "tool.calculator") and shows arguments/result in the UI.
+        execute_fn = instance.execute
+        if _LANGSMITH_ENABLED:
+            from langsmith import traceable
+
+            execute_fn = traceable(name=f"tool.{tool_id}", run_type="tool")(
+                instance.execute
+            )
+
+        return await execute_fn(**arguments)
 
     @classmethod
     def set_tool_enabled(cls, tool_id: str, enabled: bool) -> bool:

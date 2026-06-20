@@ -25,6 +25,8 @@ class ParseTwoListsRequest(BaseModel):
     model: str = "openai/gpt-4o-mini"
     api_key: str | None = None
     base_url: str | None = None
+    node_id: str | None = None
+    chat_id: str | None = None
 
 
 class Message(BaseModel):
@@ -44,6 +46,8 @@ class MatrixFillRequest(BaseModel):
     model: str = "openai/gpt-4o-mini"
     api_key: str | None = None
     base_url: str | None = None
+    node_id: str | None = None
+    chat_id: str | None = None
 
 
 def register_endpoints(app):
@@ -57,6 +61,7 @@ def register_endpoints(app):
         Returns two lists: one for rows, one for columns (max 10 each).
         """
         from canvas_chat.app import (
+            _trace_metadata,
             extract_provider,
             get_api_key_for_provider,
             inject_admin_credentials,
@@ -106,6 +111,7 @@ Example 2 output: {{"rows": ["GitHub Copilot", "Tabnine"], "columns": ["Price", 
                     {"role": "user", "content": combined_content},
                 ],
                 "temperature": 0.3,
+                "metadata": _trace_metadata("matrix.parse", request),
             }
 
             api_key = get_api_key_for_provider(provider, request.api_key)
@@ -166,6 +172,7 @@ Example 2 output: {{"rows": ["GitHub Copilot", "Tabnine"], "columns": ["Price", 
         Returns SSE stream with the evaluation content.
         """
         from canvas_chat.app import (
+            _trace_metadata,
             extract_provider,
             get_api_key_for_provider,
             inject_admin_credentials,
@@ -177,6 +184,13 @@ Example 2 output: {{"rows": ["GitHub Copilot", "Tabnine"], "columns": ["Price", 
         logger.info(
             f"Matrix fill request: row_item={request.row_item[:50]}..., "
             f"col_item={request.col_item[:50]}..."
+        )
+
+        fill_trace_md = _trace_metadata(
+            "matrix.fill",
+            request,
+            row_item=request.row_item[:80],
+            col_item=request.col_item[:80],
         )
 
         provider = extract_provider(request.model)
@@ -213,6 +227,7 @@ intersection of these two items. Do not repeat the item names in your response
                     "messages": messages,
                     "temperature": 0.5,
                     "stream": True,
+                    "metadata": fill_trace_md,
                 }
 
                 api_key = get_api_key_for_provider(provider, request.api_key)
