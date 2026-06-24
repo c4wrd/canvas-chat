@@ -364,7 +364,9 @@ class ChatRequest(BaseModel):
     model: str = "openai/gpt-4o-mini"
     api_key: str | None = None
     base_url: str | None = None
-    temperature: float = 0.7
+    # None means: don't send a temperature and let the provider use its own
+    # native default. A value is only sent when the user explicitly sets one.
+    temperature: float | None = None
     max_tokens: int | None = None
     reasoning_effort: str | None = None  # "none", "low", "medium", "high", "xhigh"
     # Tool calling options
@@ -1911,9 +1913,13 @@ async def chat(request: ChatRequest, http_request: Request):
     kwargs = {
         "model": request.model,
         "messages": [{"role": m.role, "content": m.content} for m in request.messages],
-        "temperature": request.temperature,
         "stream": True,
     }
+
+    # Only send temperature when the user explicitly set one; otherwise let the
+    # provider apply its own default (e.g. OpenAI/Anthropic/Google default to 1.0).
+    if request.temperature is not None:
+        kwargs["temperature"] = request.temperature
 
     if request.max_tokens:
         kwargs["max_tokens"] = request.max_tokens

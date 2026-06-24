@@ -909,11 +909,12 @@ class Storage {
 
     /**
      * Get temperature value for LLM requests
-     * @returns {number} - Temperature value between 0 and 2 (default: 0.7)
+     * @returns {number|null} - User-set temperature (0-2), or null when unset
+     *   (meaning: let the provider use its own native default)
      */
     getTemperature() {
         const value = localStorage.getItem('canvas-chat-temperature');
-        return value !== null ? parseFloat(value) : 0.7;
+        return value !== null ? parseFloat(value) : null;
     }
 
     /**
@@ -922,6 +923,13 @@ class Storage {
      */
     setTemperature(value) {
         localStorage.setItem('canvas-chat-temperature', value.toString());
+    }
+
+    /**
+     * Clear the temperature override so the provider's default is used.
+     */
+    clearTemperature() {
+        localStorage.removeItem('canvas-chat-temperature');
     }
 
     /**
@@ -1054,7 +1062,10 @@ class Storage {
      * @param {Object} settings
      */
     applySyncedSettings(settings) {
-        if (settings.temperature !== undefined) this.setTemperature(settings.temperature);
+        if (settings.temperature !== undefined) {
+            if (settings.temperature === null) this.clearTemperature();
+            else this.setTemperature(settings.temperature);
+        }
         if (settings.reasoningEffort !== undefined) this.setReasoningEffort(settings.reasoningEffort);
         if (settings.toolsEnabled !== undefined) this.setToolsEnabled(settings.toolsEnabled);
         if (settings.enabledTools !== undefined) this.setEnabledTools(settings.enabledTools);
