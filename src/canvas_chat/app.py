@@ -619,7 +619,7 @@ class DeepResearchReviseRequest(BaseModel):
 class ProviderModelsRequest(BaseModel):
     """Request body for fetching models from a provider."""
 
-    provider: str  # "openai", "anthropic", "google", "groq", "github", "github_copilot"
+    provider: str  # "openai", "anthropic", "google", "groq", "github", "github_copilot", "openrouter"
     api_key: str | None = None
 
 
@@ -880,6 +880,47 @@ MODEL_REGISTRY: list[dict] = [
         "provider": "GitHub",
         "context_window": 64000,
     },
+    # OpenRouter (aggregates many upstream providers behind one API)
+    {
+        "id": "openrouter/openai/gpt-4o",
+        "name": "GPT-4o (via OpenRouter)",
+        "provider": "OpenRouter",
+        "context_window": 128000,
+        "supports_vision": True,
+    },
+    {
+        "id": "openrouter/openai/gpt-4o-mini",
+        "name": "GPT-4o Mini (via OpenRouter)",
+        "provider": "OpenRouter",
+        "context_window": 128000,
+        "supports_vision": True,
+    },
+    {
+        "id": "openrouter/anthropic/claude-3.5-sonnet",
+        "name": "Claude 3.5 Sonnet (via OpenRouter)",
+        "provider": "OpenRouter",
+        "context_window": 200000,
+        "supports_vision": True,
+    },
+    {
+        "id": "openrouter/google/gemini-2.0-flash-exp:free",
+        "name": "Gemini 2.0 Flash (free, via OpenRouter)",
+        "provider": "OpenRouter",
+        "context_window": 1048576,
+        "supports_vision": True,
+    },
+    {
+        "id": "openrouter/meta-llama/llama-3.3-70b-instruct",
+        "name": "Llama 3.3 70B (via OpenRouter)",
+        "provider": "OpenRouter",
+        "context_window": 128000,
+    },
+    {
+        "id": "openrouter/deepseek/deepseek-chat",
+        "name": "DeepSeek Chat (via OpenRouter)",
+        "provider": "OpenRouter",
+        "context_window": 64000,
+    },
 ]
 
 
@@ -1101,6 +1142,22 @@ PROVIDER_ENDPOINTS = {
     "openai": "https://api.openai.com/v1/models",
     "groq": "https://api.groq.com/openai/v1/models",
     "github": "https://models.inference.ai.azure.com/models",
+    "openrouter": "https://openrouter.ai/api/v1/models",
+}
+
+# Maps the lowercase provider key (from request.provider) to the display name
+# used in MODEL_REGISTRY entries. ``str.capitalize()`` mishandles multi-case
+# names ("openai" -> "Openai" != "OpenAI"), so we look up explicitly and only
+# fall back to capitalize() for unknown providers.
+PROVIDER_REGISTRY_NAME = {
+    "openai": "OpenAI",
+    "anthropic": "Anthropic",
+    "google": "Google",
+    "groq": "Groq",
+    "github": "GitHub",
+    "github_copilot": "GitHub Copilot",
+    "openrouter": "OpenRouter",
+    "ollama": "Ollama",
 }
 
 # Context windows for known models (used as fallback)
@@ -1261,6 +1318,67 @@ async def fetch_github_models(api_key: str) -> list[dict]:
                 return models
     except (httpx.RequestError, httpx.TimeoutException) as e:
         logger.warning(f"Failed to fetch GitHub models: {e}")
+    return []
+
+
+async def fetch_openrouter_models(api_key: str) -> list[dict]:
+    """Fetch available models from OpenRouter.
+
+    OpenRouter aggregates many upstream providers (OpenAI, Anthropic, Google,
+    Meta, Mistral, etc.) behind a single OpenAI-compatible API. Upstream model
+    IDs already include their provider (e.g., "openai/gpt-4o"); we prefix with
+    "openrouter/" so LiteLLM routes the call through OpenRouter's endpoint.
+
+    The model-list endpoint is public, but we send the API key when available
+    for higher rate limits. Only text-output chat models are returned; image,
+    audio, and embedding-only models are filtered out.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            headers = {}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            response = await client.get(
+                PROVIDER_ENDPOINTS["openrouter"],
+                headers=headers,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                models = []
+                for m in data.get("data", []):
+                    upstream_id = m.get("id", "")
+                    if not upstream_id:
+                        continue
+
+                    # Filter to text-output chat models using OpenRouter's
+                    # architecture metadata, falling back to the modality string.
+                    architecture = m.get("architecture", {}) or {}
+                    output_modalities = architecture.get("output_modalities") or []
+                    modality = (m.get("modality", "") or "").lower()
+                    if output_modalities:
+                        if "text" not in output_modalities:
+                            continue
+                    elif modality and "->text" not in modality and "text" not in modality:
+                        continue
+
+                    litellm_id = f"openrouter/{upstream_id}"
+                    context_window = (
+                        m.get("context_length") or get_context_window(upstream_id)
+                    )
+                    input_modalities = architecture.get("input_modalities") or []
+                    supports_vision = "image" in input_modalities or "image" in modality
+                    models.append(
+                        {
+                            "id": litellm_id,
+                            "name": m.get("name", upstream_id),
+                            "provider": "OpenRouter",
+                            "context_window": context_window,
+                            "supports_vision": supports_vision,
+                        }
+                    )
+                return models
+    except (httpx.RequestError, httpx.TimeoutException) as e:
+        logger.warning(f"Failed to fetch OpenRouter models: {e}")
     return []
 
 
@@ -1747,6 +1865,8 @@ async def get_provider_models(request: ProviderModelsRequest) -> list[ModelInfo]
         models = await fetch_github_models(api_key)
     elif provider == "github_copilot":
         models = await fetch_github_copilot_models()
+    elif provider == "openrouter":
+        models = await fetch_openrouter_models(api_key)
     else:
         raise HTTPException(status_code=400, detail=f"Unknown provider: {provider}")
 
@@ -1758,7 +1878,9 @@ async def get_provider_models(request: ProviderModelsRequest) -> list[ModelInfo]
     # Merge in static registry models for this provider that the live API didn't return.
     # This ensures preview/new models always appear even if the provider API omits them.
     existing_ids = {m["id"] for m in models}
-    registry_provider = provider.capitalize()  # "google" -> "Google", etc.
+    registry_provider = PROVIDER_REGISTRY_NAME.get(
+        provider, provider.capitalize()
+    )  # "google" -> "Google", "openrouter" -> "OpenRouter"
     for reg_model in MODEL_REGISTRY:
         if (
             reg_model["provider"] == registry_provider

@@ -35,6 +35,7 @@ This includes:
 - 2026-01-20: New TypeScript files must pass `pixi run typecheck` before committing. When converting JS to TS, verify the new `.ts` file has no type errors. Run `npx tsc --noEmit path/to/file.ts` to check specific files.
 - 2026-01-30: VSCode debug config should run `uvicorn` directly (using the selected virtual env), not via `uv run`.
 - 2026-06-19: Use `mise` tasks (for example, `mise run test` and `mise run typecheck`) for project commands.
+- 2026-06-19: When adding a new LLM provider, wire it end-to-end: (1) `PROVIDER_ENDPOINTS` + `PROVIDER_REGISTRY_NAME` + `fetch_<provider>_models()` + `get_provider_models` branch in `app.py`; (2) `MODEL_REGISTRY` entries with the matching display-name provider; (3) `_getStorageKeyForProvider`, `hasAnyLLMApiKey`, `getConfiguredProviders` in `storage.js`; (4) `loadModels` providers list + `saveSettings` keys in `app.js`; (5) `showSettingsModal` key load in `modal-manager.js`; (6) the API key `<input>` in `index.html`; (7) `ApiKeys`/`ProviderName` typedefs in `storage.js`. Do NOT use `str.capitalize()` for provider display names in registry-merge logic — it mishandles multi-case names ("openai" -> "Openai"); use `PROVIDER_REGISTRY_NAME` instead.
 
 **Python commands:** Use `pixi run python` when running project Python commands so the pixi environment and dependencies are active.
 
@@ -179,6 +180,9 @@ canvas-chat/
 | `PRIORITY`                          | `feature-registry.js:8-12`              | Plugin priority levels (BUILTIN > OFFICIAL > COMMUNITY) |
 | `PluginConfig`                      | `config.py:78-197`                      | Plugin configuration dataclass (JS/PY/paired plugins)   |
 | `CANVAS_CHAT_ENABLE_GITHUB_COPILOT` | `config.py:is_github_copilot_enabled()` | Enable/disable GitHub Copilot (default: true)           |
+| `MODEL_REGISTRY`                    | `app.py:MODEL_REGISTRY`                 | Static model list per provider (OpenAI, Anthropic, Google, Groq, GitHub, OpenRouter) |
+| `PROVIDER_ENDPOINTS`                | `app.py:PROVIDER_ENDPOINTS`             | Model-list API URLs per provider (openai, groq, github, openrouter) |
+| `PROVIDER_REGISTRY_NAME`            | `app.py:PROVIDER_REGISTRY_NAME`         | Lowercase provider key -> display name for registry merge (e.g., "openrouter" -> "OpenRouter"). Use this instead of `str.capitalize()` which mishandles multi-case names. |
 | CSS variables                       | `style.css:10-75`                       | Colors, sizing, theming                                 |
 
 ### Zoom levels (semantic zoom)

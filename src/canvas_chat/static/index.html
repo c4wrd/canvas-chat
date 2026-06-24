@@ -406,6 +406,15 @@
                             >
                         </div>
 
+                        <div class="api-key-group">
+                            <label for="openrouter-key">OpenRouter API Key</label>
+                            <input type="password" id="openrouter-key" placeholder="sk-or-..." />
+                            <small class="key-hint"
+                                >Access many providers (OpenAI, Anthropic, Google, Meta) through one API.
+                                <a href="https://openrouter.ai/keys" target="_blank">Get API key</a></small
+                            >
+                        </div>
+
                         <div class="api-key-group" id="copilot-settings-section">
                             <label>GitHub Copilot authentication</label>
                             <span id="copilot-auth-status" class="key-hint">Not authenticated</span>
@@ -472,7 +481,8 @@
                                 <label for="custom-model-id">Model ID *</label>
                                 <input type="text" id="custom-model-id" placeholder="openai/gpt-4.1-mini" />
                                 <small class="key-hint"
-                                    >Format: provider/model-name (e.g., openai/my-model, ollama_chat/llama3.1)</small
+                                    >Format: provider/model-name (e.g., openai/my-model, ollama_chat/llama3.1,
+                                    openrouter/openai/gpt-4o)</small
                                 >
                             </div>
                             <div class="api-key-group">

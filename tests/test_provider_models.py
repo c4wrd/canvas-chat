@@ -1,3 +1,5 @@
+import asyncio
+
 import litellm
 from fastapi.testclient import TestClient
 
@@ -35,3 +37,152 @@ def test_provider_models_copilot_blocked_in_admin_mode(monkeypatch):
 
     assert response.status_code == 400
     assert "admin mode" in response.json()["detail"].lower()
+
+
+# --- OpenRouter tests ---
+
+
+class _FakeResponse:
+    """Minimal fake httpx.Response for testing fetch functions."""
+
+    def __init__(self, status_code: int, payload: dict):
+        self.status_code = status_code
+        self._payload = payload
+
+    def json(self) -> dict:
+        return self._payload
+
+
+class _FakeAsyncClient:
+    """Fake httpx.AsyncClient that returns a canned OpenRouter models response.
+
+    Usage: monkeypatch httpx.AsyncClient in the app module to this class.
+    """
+
+    def __init__(self, *args, **kwargs):
+        self._headers = kwargs.get("headers", {})
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def get(self, url, headers=None):
+        # Return a mix of: text chat model, vision model, and non-text (image-only) model.
+        payload = {
+            "data": [
+                {
+                    "id": "openai/gpt-4o",
+                    "name": "OpenAI: GPT-4o",
+                    "context_length": 128000,
+                    "modality": "text+image->text",
+                    "architecture": {
+                        "input_modalities": ["text", "image"],
+                        "output_modalities": ["text"],
+                    },
+                },
+                {
+                    "id": "meta-llama/llama-3.3-70b-instruct",
+                    "name": "Meta: Llama 3.3 70B Instruct",
+                    "context_length": 128000,
+                    "modality": "text->text",
+                    "architecture": {
+                        "input_modalities": ["text"],
+                        "output_modalities": ["text"],
+                    },
+                },
+                {
+                    # Image-only output model: should be filtered out.
+                    "id": "openai/dall-e-3",
+                    "name": "OpenAI: DALL-E 3",
+                    "context_length": 4096,
+                    "modality": "text->image",
+                    "architecture": {
+                        "input_modalities": ["text"],
+                        "output_modalities": ["image"],
+                    },
+                },
+            ]
+        }
+        return _FakeResponse(200, payload)
+
+
+def test_fetch_openrouter_models_parses_and_filters(monkeypatch):
+    """fetch_openrouter_models should prefix IDs, set provider, and filter non-text models."""
+    monkeypatch.setattr(app_module.httpx, "AsyncClient", _FakeAsyncClient)
+
+    models = asyncio.run(app_module.fetch_openrouter_models("sk-or-test"))
+
+    # DALL-E (image-only output) should be filtered out.
+    ids = {m["id"] for m in models}
+    assert "openrouter/openai/gpt-4o" in ids
+    assert "openrouter/meta-llama/llama-3.3-70b-instruct" in ids
+    assert "openrouter/openai/dall-e-3" not in ids, "Image-only model should be filtered"
+
+    # All models should be tagged with the OpenRouter provider.
+    assert all(m["provider"] == "OpenRouter" for m in models)
+
+    # Vision capability should be derived from input_modalities/modality.
+    by_id = {m["id"]: m for m in models}
+    assert by_id["openrouter/openai/gpt-4o"]["supports_vision"] is True
+    assert by_id["openrouter/meta-llama/llama-3.3-70b-instruct"]["supports_vision"] is False
+
+    # Context window should be passed through from OpenRouter's response.
+    assert by_id["openrouter/openai/gpt-4o"]["context_window"] == 128000
+
+
+def test_provider_models_openrouter_routes_and_merges_registry(monkeypatch):
+    """The /api/provider-models endpoint should route openrouter and merge registry entries."""
+
+    async def fake_fetch(api_key):
+        return [
+            {
+                "id": "openrouter/openai/gpt-4o",
+                "name": "OpenAI: GPT-4o",
+                "provider": "OpenRouter",
+                "context_window": 128000,
+                "supports_vision": True,
+            }
+        ]
+
+    monkeypatch.setattr(app_module, "fetch_openrouter_models", fake_fetch)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/provider-models",
+        json={"provider": "openrouter", "api_key": "sk-or-test"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    ids = {m["id"] for m in data}
+
+    # Dynamically-fetched model is present.
+    assert "openrouter/openai/gpt-4o" in ids
+    # Static registry models for OpenRouter should be merged in (not duplicated).
+    assert "openrouter/openai/gpt-4o-mini" in ids
+    assert "openrouter/anthropic/claude-3.5-sonnet" in ids
+    # All merged entries share the OpenRouter provider name.
+    assert all(m["provider"] == "OpenRouter" for m in data)
+
+
+def test_provider_models_openrouter_requires_api_key(monkeypatch):
+    """OpenRouter should require an API key (unlike the public models endpoint)."""
+    client = TestClient(app)
+    response = client.post("/api/provider-models", json={"provider": "openrouter"})
+
+    assert response.status_code == 400
+    assert "api key" in response.json()["detail"].lower()
+
+
+def test_provider_registry_name_covers_openrouter():
+    """PROVIDER_REGISTRY_NAME should map openrouter -> OpenRouter for the merge step.
+
+    This guards against the latent str.capitalize() bug that produced "Openrouter"
+    (and "Openai" for openai), which would have skipped registry merging.
+    """
+    assert app_module.PROVIDER_REGISTRY_NAME["openrouter"] == "OpenRouter"
+    assert app_module.PROVIDER_REGISTRY_NAME["openai"] == "OpenAI"
+    assert app_module.PROVIDER_REGISTRY_NAME["github_copilot"] == "GitHub Copilot"
+

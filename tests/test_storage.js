@@ -160,6 +160,7 @@ function createProviderMappingStorage(localStorage) {
                 groq: 'groq',
                 github: 'github',
                 github_copilot: 'github_copilot',
+                openrouter: 'openrouter',
                 exa: 'exa',
             };
             return providerMap[provider.toLowerCase()] || provider.toLowerCase();
@@ -262,12 +263,14 @@ test('getApiKeyForProvider: returns key using mapping', () => {
         openai: 'sk-openai-key',
         google: 'google-key',
         github: 'gh-token',
+        openrouter: 'sk-or-key',
     });
     storage.saveCopilotAuth({ apiKey: 'copilot-token' });
 
     assertEqual(storage.getApiKeyForProvider('openai'), 'sk-openai-key');
     assertEqual(storage.getApiKeyForProvider('gemini'), 'google-key');
     assertEqual(storage.getApiKeyForProvider('github_copilot'), 'copilot-token');
+    assertEqual(storage.getApiKeyForProvider('openrouter'), 'sk-or-key');
 });
 
 test('getApiKeyForProvider: returns null for unconfigured provider', () => {
@@ -374,6 +377,28 @@ test('getApiKeysForModels: empty array returns empty object', () => {
     const result = storage.getApiKeysForModels([]);
 
     assertDeepEqual(result, {});
+});
+
+test('getApiKeysForModels: includes openrouter key for openrouter/ models', () => {
+    const mockStorage = new MockLocalStorage();
+    const storage = createProviderMappingStorage(mockStorage);
+
+    storage.saveApiKeys({
+        openai: 'sk-openai',
+        openrouter: 'sk-or-key',
+    });
+
+    // OpenRouter model IDs have a nested provider prefix (openrouter/<upstream>/<model>).
+    const result = storage.getApiKeysForModels([
+        'openai/gpt-4o',
+        'openrouter/openai/gpt-4o',
+        'openrouter/anthropic/claude-3.5-sonnet',
+    ]);
+
+    assertDeepEqual(result, {
+        openai: 'sk-openai',
+        openrouter: 'sk-or-key',
+    });
 });
 
 // ============================================================

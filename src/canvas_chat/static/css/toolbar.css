@@ -47,7 +47,7 @@
 
 .toolbar-right {
     gap: 18px;
-    flex: 0 0 auto;
+    flex: 0 1 auto;
 }
 
 .toolbar-brand {
@@ -212,6 +212,9 @@
     font-size: 13px;
     cursor: pointer;
     outline: none;
+    max-width: 220px;
+    min-width: 0;
+    text-overflow: ellipsis;
 }
 
 .layout-picker:hover,
@@ -232,6 +235,7 @@
     gap: 10px;
     padding-left: 16px;
     border-left: 1px solid var(--border);
+    min-width: 0;
 }
 
 .context-budget {

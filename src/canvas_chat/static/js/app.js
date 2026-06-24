@@ -876,6 +876,7 @@ class App {
             { name: 'google', key: keys.google },
             { name: 'groq', key: keys.groq },
             { name: 'github', key: keys.github },
+            { name: 'openrouter', key: keys.openrouter },
         ];
 
         // Fetch models from all providers in parallel
@@ -5670,6 +5671,7 @@ print("Hello from Pyodide!")
             google: document.getElementById('google-key').value.trim(),
             groq: document.getElementById('groq-key').value.trim(),
             github: document.getElementById('github-key').value.trim(),
+            openrouter: document.getElementById('openrouter-key').value.trim(),
             exa: document.getElementById('exa-key').value.trim(),
             perplexity: document.getElementById('perplexity-key').value.trim(),
         };
