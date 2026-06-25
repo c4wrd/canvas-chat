@@ -44,6 +44,8 @@ class AppContext {
         this.tryHandleSlashCommand = app.tryHandleSlashCommand
             ? app.tryHandleSlashCommand.bind(app)
             : null;
+        this.getCurrentModel = app.getCurrentModel ? app.getCurrentModel.bind(app) : null;
+        this.getAvailableModels = () => app.availableModels || [];
 
         // Unified streaming manager (preferred)
         this.streamingManager = app.streamingManager;
@@ -160,6 +162,8 @@ class FeaturePlugin {
         this.buildLLMRequest = context.buildLLMRequest;
         this.generateNodeSummary = context.generateNodeSummary;
         this.tryHandleSlashCommand = context.tryHandleSlashCommand;
+        this.getCurrentModel = context.getCurrentModel;
+        this.getAvailableModels = context.getAvailableModels;
 
         // Legacy streaming state management (for backwards compatibility)
         // TODO: Remove after all features migrated to StreamingManager

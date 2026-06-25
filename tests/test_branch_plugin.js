@@ -9,6 +9,8 @@ const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
 global.document = dom.window.document;
 global.window = dom.window;
 
+const { BranchFeature } = await import('../src/canvas_chat/static/js/plugins/branch.js');
+
 console.log('\n=== Branch Feature Plugin Tests ===\n');
 
 /**
@@ -96,6 +98,41 @@ class MockBranchFeature {
 // Create instance for testing
 const feature = new MockBranchFeature();
 
+function createBranchFeature(overrides = {}) {
+    const context = {
+        canvas: null,
+        chat: null,
+        storage: null,
+        modalManager: null,
+        undoManager: null,
+        featureRegistry: null,
+        streamingManager: null,
+        modelPicker: null,
+        chatInput: null,
+        showToast: null,
+        saveSession: () => {},
+        updateEmptyState: () => {},
+        updateCollapseButtonForNode: null,
+        buildLLMRequest: () => {},
+        generateNodeSummary: null,
+        tryHandleSlashCommand: null,
+        registerStreaming: () => {},
+        unregisterStreaming: () => {},
+        getStreamingState: () => null,
+        pyodideRunner: null,
+        streamingNodes: new Map(),
+        apiUrl: (path) => path,
+        adminMode: false,
+        adminModels: [],
+        getCurrentModel: null,
+        getAvailableModels: null,
+        graph: null,
+        searchIndex: null,
+        ...overrides,
+    };
+    return new BranchFeature(context);
+}
+
 // Test parseItems with numbered lists
 test('parseItems handles numbered lists with periods', () => {
     const content = `Here are my options:
@@ -104,6 +141,39 @@ test('parseItems handles numbered lists with periods', () => {
 3. Third option`;
     const items = feature.parseItems(content);
     assertArrayEquals(items, ['First option', 'Second option', 'Third option']);
+});
+
+test('BranchFeature reads current model from app context', () => {
+    const modelPicker = document.createElement('button');
+    modelPicker.dataset.modelId = 'openai/fallback-model';
+    const branchFeature = createBranchFeature({
+        modelPicker,
+        getCurrentModel: () => 'openai/gpt-4o-mini',
+    });
+
+    assertEquals(branchFeature._getCurrentModel(), 'openai/gpt-4o-mini');
+});
+
+test('BranchFeature falls back to button model dataset', () => {
+    const modelPicker = document.createElement('button');
+    modelPicker.dataset.modelId = 'openai/gpt-4o-mini';
+    const branchFeature = createBranchFeature({ modelPicker });
+
+    assertEquals(branchFeature._getCurrentModel(), 'openai/gpt-4o-mini');
+});
+
+test('BranchFeature reads available models from app context', () => {
+    const branchFeature = createBranchFeature({
+        getAvailableModels: () => [
+            { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini', provider: 'OpenAI' },
+            { id: 'anthropic/claude-sonnet-4', provider: 'Anthropic' },
+        ],
+    });
+
+    assertArrayEquals(branchFeature._getAvailableModels(), [
+        { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini' },
+        { id: 'anthropic/claude-sonnet-4', name: 'anthropic/claude-sonnet-4' },
+    ]);
 });
 
 test('parseItems handles numbered lists with parentheses', () => {

@@ -377,8 +377,11 @@ class BranchFeature extends FeaturePlugin {
     async extractItemsWithLLM(content, instructions = '') {
         console.log('[Branch] extractItemsWithLLM called');
         console.log('[Branch] Instructions:', instructions || '(none)');
-        const model = this.modelPicker.value;
+        const model = this._getCurrentModel();
         console.log('[Branch] Using model:', model);
+        if (!model) {
+            throw new Error('No model selected. Configure an API key and select a model before using /branch.');
+        }
 
         let prompt = `Extract a list of distinct items from the following content. Return ONLY a JSON array of strings, with no additional text or explanation.
 
@@ -500,7 +503,7 @@ ${content}`;
                         sourceNodeId,
                         items: [],
                         template: '',
-                        model: this.modelPicker.value,
+                        model: this._getCurrentModel(),
                     };
                     this.renderItemsList();
                     this.updateItemsCount();
@@ -520,7 +523,7 @@ ${content}`;
             sourceNodeId,
             items: items,
             template: '',
-            model: this.modelPicker.value,
+            model: this._getCurrentModel(),
         };
 
         console.log('[Branch] Stored _branchData.items:', this._branchData.items);
@@ -539,10 +542,7 @@ ${content}`;
         // Populate model dropdown
         const modelSelect = modal.querySelector('#branch-model');
         modelSelect.innerHTML = '';
-        const availableModels = Array.from(this.modelPicker.options).map((opt) => ({
-            id: opt.value,
-            name: opt.textContent,
-        }));
+        const availableModels = this._getAvailableModels();
         for (const model of availableModels) {
             const option = document.createElement('option');
             option.value = model.id;
@@ -593,6 +593,35 @@ ${content}`;
         modelSelect.addEventListener('change', (e) => {
             this._branchData.model = e.target.value;
         });
+    }
+
+    /**
+     * Get the currently selected model from the app-level model picker.
+     * Supports the current button-based picker and older select-based harnesses.
+     * @returns {string}
+     */
+    _getCurrentModel() {
+        return this.getCurrentModel?.() || this.modelPicker?.dataset?.modelId || this.modelPicker?.value || '';
+    }
+
+    /**
+     * Get models available for branch execution.
+     * Supports the current model browser list and older select-based harnesses.
+     * @returns {Array<{id: string, name: string}>}
+     */
+    _getAvailableModels() {
+        const models = this.getAvailableModels?.() || [];
+        if (models.length > 0) {
+            return models.map((model) => ({
+                id: model.id,
+                name: model.name || model.id,
+            }));
+        }
+
+        return Array.from(this.modelPicker?.options || []).map((opt) => ({
+            id: opt.value,
+            name: opt.textContent,
+        }));
     }
 
     /**
