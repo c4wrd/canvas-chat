@@ -143,6 +143,8 @@ class App {
         this.temperatureSlider = document.getElementById('temperature-slider');
         this.temperatureValue = document.getElementById('temperature-value');
         this.temperatureToggleValue = document.getElementById('temperature-toggle-value');
+        this.temperatureResetBtn = document.getElementById('temperature-reset-btn');
+        this.temperatureHint = document.getElementById('temperature-hint');
         this.toolsToggleBtn = document.getElementById('tools-toggle-btn');
         this.toolsMenu = document.getElementById('tools-menu');
         this.toolsEnabledCheckbox = document.getElementById('tools-enabled-checkbox');
@@ -613,11 +615,24 @@ class App {
             return;
         }
 
-        // Load saved value
-        const savedValue = storage.getTemperature();
-        this.temperatureSlider.value = savedValue;
-        this.temperatureValue.textContent = savedValue.toFixed(1);
-        this.temperatureToggleValue.textContent = savedValue.toFixed(1);
+        // Reflect the current state in the UI. A null override means "Auto":
+        // no temperature is sent and the provider uses its own default.
+        const renderTemperatureState = () => {
+            const value = storage.getTemperature();
+            const isAuto = value === null;
+            // Keep the slider thumb at a sensible spot even when unset.
+            this.temperatureSlider.value = isAuto ? 1.0 : value;
+            this.temperatureValue.textContent = isAuto ? 'Auto' : value.toFixed(1);
+            this.temperatureToggleValue.textContent = isAuto ? 'Auto' : value.toFixed(1);
+            if (this.temperatureResetBtn) {
+                this.temperatureResetBtn.style.display = isAuto ? 'none' : 'inline-block';
+            }
+            if (this.temperatureHint) {
+                this.temperatureHint.style.display = isAuto ? 'block' : 'none';
+            }
+        };
+
+        renderTemperatureState();
 
         // Toggle menu on button click
         this.temperatureToggleBtn.addEventListener('click', (e) => {
@@ -627,13 +642,21 @@ class App {
             this.temperatureToggleBtn.classList.toggle('active', !isVisible);
         });
 
-        // Listen for slider changes
+        // Listen for slider changes — moving the slider sets an explicit override
         this.temperatureSlider.addEventListener('input', () => {
             const value = parseFloat(this.temperatureSlider.value);
-            this.temperatureValue.textContent = value.toFixed(1);
-            this.temperatureToggleValue.textContent = value.toFixed(1);
             storage.setTemperature(value);
+            renderTemperatureState();
         });
+
+        // Reset clears the override, restoring the provider's default
+        if (this.temperatureResetBtn) {
+            this.temperatureResetBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                storage.clearTemperature();
+                renderTemperatureState();
+            });
+        }
 
         // Close menu when clicking outside
         document.addEventListener('click', (e) => {
@@ -1852,9 +1875,13 @@ class App {
         if (this.adminMode) {
             const request = {
                 model: model,
-                temperature: temperature,
                 ...additionalParams,
             };
+            // Only send temperature when the user explicitly set one; otherwise
+            // let the provider use its own default.
+            if (temperature !== null && temperature !== undefined) {
+                request.temperature = temperature;
+            }
             // Add reasoning_effort if enabled
             if (reasoningEffort && reasoningEffort !== 'none') {
                 request.reasoning_effort = reasoningEffort;
@@ -1878,9 +1905,13 @@ class App {
             model: model,
             api_key: apiKey,
             base_url: baseUrl,
-            temperature: temperature,
             ...additionalParams,
         };
+        // Only send temperature when the user explicitly set one; otherwise
+        // let the provider use its own default.
+        if (temperature !== null && temperature !== undefined) {
+            request.temperature = temperature;
+        }
 
         // Add reasoning_effort if enabled
         if (reasoningEffort && reasoningEffort !== 'none') {
