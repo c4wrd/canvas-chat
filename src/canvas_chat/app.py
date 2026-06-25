@@ -621,7 +621,9 @@ class DeepResearchReviseRequest(BaseModel):
 class ProviderModelsRequest(BaseModel):
     """Request body for fetching models from a provider."""
 
-    provider: str  # "openai", "anthropic", "google", "groq", "github", "github_copilot", "openrouter"
+    # "openai", "anthropic", "google", "groq", "github", "github_copilot",
+    # "openrouter"
+    provider: str
     api_key: str | None = None
 
 
@@ -651,6 +653,24 @@ class CommitteeRequest(BaseModel):
 # Users can still use any LiteLLM-supported model
 MODEL_REGISTRY: list[dict] = [
     # OpenAI
+    {
+        "id": "openai/gpt-5.5-pro",
+        "name": "GPT-5.5 Pro",
+        "provider": "OpenAI",
+        "context_window": 1050000,
+        "supports_reasoning": True,
+        "supports_xhigh_reasoning": True,
+        "supports_vision": True,
+    },
+    {
+        "id": "openai/gpt-5.5",
+        "name": "GPT-5.5",
+        "provider": "OpenAI",
+        "context_window": 1050000,
+        "supports_reasoning": True,
+        "supports_xhigh_reasoning": True,
+        "supports_vision": True,
+    },
     {
         "id": "openai/gpt-5.4",
         "name": "GPT-5.4",
@@ -688,6 +708,15 @@ MODEL_REGISTRY: list[dict] = [
         "context_window": 16385,
     },
     # Anthropic
+    {
+        "id": "anthropic/claude-opus-4-8",
+        "name": "Claude Opus 4.8",
+        "provider": "Anthropic",
+        "context_window": 1000000,
+        "supports_reasoning": True,
+        "supports_xhigh_reasoning": True,
+        "supports_vision": True,
+    },
     {
         "id": "anthropic/claude-opus-4-7",
         "name": "Claude Opus 4.7",
@@ -775,6 +804,14 @@ MODEL_REGISTRY: list[dict] = [
         "supports_vision": True,
     },
     # Google
+    {
+        "id": "gemini/gemini-3.5-flash",
+        "name": "Gemini 3.5 Flash",
+        "provider": "Google",
+        "context_window": 1048576,
+        "supports_reasoning": True,
+        "supports_vision": True,
+    },
     {
         "id": "gemini/gemini-3.1-pro-preview",
         "name": "Gemini 3.1 Pro Preview",
@@ -1171,6 +1208,7 @@ KNOWN_CONTEXT_WINDOWS = {
     "gpt-4-turbo": 128000,
     "gpt-4": 8192,
     "gpt-3.5-turbo": 16385,
+    "claude-opus-4-8": 1000000,
     "claude-opus-4-7": 1000000,
     "claude-opus-4-6": 1000000,
     "claude-sonnet-4-6": 1000000,
@@ -1360,12 +1398,14 @@ async def fetch_openrouter_models(api_key: str) -> list[dict]:
                     if output_modalities:
                         if "text" not in output_modalities:
                             continue
-                    elif modality and "->text" not in modality and "text" not in modality:
+                    elif (
+                        modality and "->text" not in modality and "text" not in modality
+                    ):
                         continue
 
                     litellm_id = f"openrouter/{upstream_id}"
-                    context_window = (
-                        m.get("context_length") or get_context_window(upstream_id)
+                    context_window = m.get("context_length") or get_context_window(
+                        upstream_id
                     )
                     input_modalities = architecture.get("input_modalities") or []
                     supports_vision = "image" in input_modalities or "image" in modality
@@ -1435,6 +1475,15 @@ async def fetch_google_models(api_key: str) -> list[dict]:
 
 # Anthropic doesn't have a models list API, so we use a static list
 ANTHROPIC_MODELS = [
+    {
+        "id": "anthropic/claude-opus-4-8",
+        "name": "Claude Opus 4.8",
+        "provider": "Anthropic",
+        "context_window": 1000000,
+        "supports_reasoning": True,
+        "supports_xhigh_reasoning": True,
+        "supports_vision": True,
+    },
     {
         "id": "anthropic/claude-opus-4-7",
         "name": "Claude Opus 4.7",
