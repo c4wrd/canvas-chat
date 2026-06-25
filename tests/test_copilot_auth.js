@@ -52,6 +52,11 @@ function createAppForLoadModels() {
     const app = Object.create(App.prototype);
     app.adminMode = false;
     app.modelPicker = document.getElementById('model-picker');
+    app.availableModels = [];
+    app.currentModel = '';
+    app.modelCapabilitiesMap = {};
+    app.modelBrowser = null;
+    app.updateThinkingControls = () => {};
     app.loadModelsAdminMode = App.prototype.loadModelsAdminMode;
     return app;
 }
@@ -99,8 +104,7 @@ await asyncTest('loadModels adds Copilot options when authenticated', async () =
 
     try {
         await app.loadModels();
-        const options = [...app.modelPicker.querySelectorAll('option')];
-        assertTrue(options.some((option) => option.value === 'github_copilot/gpt-4o'));
+        assertTrue(app.availableModels.some((model) => model.id === 'github_copilot/gpt-4o'));
     } finally {
         storage.getApiKeys = originalGetApiKeys;
         storage.getCustomModels = originalGetCustomModels;

@@ -217,6 +217,28 @@
     text-overflow: ellipsis;
 }
 
+.model-picker-trigger {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    min-width: 180px;
+    text-align: left;
+}
+
+.model-picker-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.model-picker-provider {
+    color: var(--text-muted);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
 .layout-picker:hover,
 .model-picker:hover {
     border-color: var(--accent);

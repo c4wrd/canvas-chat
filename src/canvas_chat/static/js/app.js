@@ -9,6 +9,7 @@ import { CRDTGraph } from './crdt-graph.js';
 import { FileUploadHandler } from './file-upload-handler.js';
 import { EdgeType, NodeType, TAG_COLORS, createEdge, createNode, getDefaultNodeSize } from './graph-types.js';
 import { ModalManager } from './modal-manager.js';
+import { ModelBrowser } from './model-browser.js';
 import { NodeRegistry } from './node-registry.js';
 import { SlashCommandMenu, setFeatureRegistry } from './slash-command-menu.js';
 import { storage } from './storage.js';
@@ -103,6 +104,8 @@ class App {
         // Admin mode state (set by loadConfig)
         this.adminMode = false;
         this.adminModels = []; // Models configured by admin (only in admin mode)
+        this.availableModels = [];
+        this.currentModel = storage.getCurrentModel();
 
         // Firebase sync
         this.firestoreSync = null;
@@ -126,6 +129,7 @@ class App {
         this.chatInput = document.getElementById('chat-input');
         this.sendBtn = document.getElementById('send-btn');
         this.modelPicker = document.getElementById('model-picker');
+        this.modelBrowser = new ModelBrowser(this);
         this.thinkingToggleBtn = document.getElementById('thinking-toggle-btn');
         this.thinkingMenu = document.getElementById('thinking-menu');
         this.thinkingEnabledCheckbox = document.getElementById('thinking-enabled-checkbox');
@@ -907,37 +911,10 @@ class App {
 
         // Update chat.models for context window lookups
         chat.models = allModels;
-
-        // Populate model picker
-        this.modelPicker.innerHTML = '';
-
-        if (allModels.length === 0) {
-            // No API keys configured - show hint
-            const option = document.createElement('option');
-            option.value = '';
-            option.textContent = 'Configure API keys in Settings ⚙️';
-            option.disabled = true;
-            this.modelPicker.appendChild(option);
-            this.modelPicker.classList.add('no-keys');
-        } else {
-            this.modelPicker.classList.remove('no-keys');
-            for (const model of allModels) {
-                const option = document.createElement('option');
-                option.value = model.id;
-                option.textContent = `${model.name} (${model.provider})`;
-                this.modelPicker.appendChild(option);
-            }
-
-            // Restore last selected model (if still available)
-            const savedModel = storage.getCurrentModel();
-            if (savedModel && allModels.find((m) => m.id === savedModel)) {
-                this.modelPicker.value = savedModel;
-            }
-        }
+        this.updateAvailableModels(allModels);
 
         this._buildCapabilitiesMap(allModels);
-        const currentModel = storage.getCurrentModel();
-        this.updateThinkingControls(this.modelCapabilitiesMap[currentModel] || null);
+        this.updateThinkingControls(this.modelCapabilitiesMap[this.getCurrentModel()] || null);
     }
 
     /**
@@ -949,39 +926,74 @@ class App {
 
         // Update chat.models for context window lookups
         chat.models = allModels;
-
-        // Populate model picker
-        this.modelPicker.innerHTML = '';
-
-        if (allModels.length === 0) {
-            // No models configured by admin
-            const option = document.createElement('option');
-            option.value = '';
-            option.textContent = 'No models configured. Contact your administrator.';
-            option.disabled = true;
-            this.modelPicker.appendChild(option);
-            this.modelPicker.classList.add('no-keys');
-        } else {
-            this.modelPicker.classList.remove('no-keys');
-            for (const model of allModels) {
-                const option = document.createElement('option');
-                option.value = model.id;
-                // Admin models may have provider from config or extract from id
-                const provider = model.provider || model.id.split('/')[0];
-                option.textContent = `${model.name} (${provider})`;
-                this.modelPicker.appendChild(option);
-            }
-
-            // Restore last selected model (if still available)
-            const savedModel = storage.getCurrentModel();
-            if (savedModel && allModels.find((m) => m.id === savedModel)) {
-                this.modelPicker.value = savedModel;
-            }
-        }
+        this.updateAvailableModels(allModels, 'No models configured. Contact your administrator.');
 
         this._buildCapabilitiesMap(allModels);
-        const currentModel = storage.getCurrentModel();
-        this.updateThinkingControls(this.modelCapabilitiesMap[currentModel] || null);
+        this.updateThinkingControls(this.modelCapabilitiesMap[this.getCurrentModel()] || null);
+    }
+
+    /**
+     * @returns {string}
+     */
+    getCurrentModel() {
+        return this.currentModel || '';
+    }
+
+    /**
+     * @param {string} modelId
+     * @param {{persist?: boolean, addRecent?: boolean}} options
+     */
+    setCurrentModel(modelId, options = {}) {
+        const { persist = true, addRecent = false } = options;
+        this.currentModel = modelId || '';
+        if (persist) {
+            storage.setCurrentModel(this.currentModel);
+        }
+        if (addRecent && this.currentModel) {
+            storage.addRecentModel(this.currentModel);
+        }
+        this.renderModelPickerTrigger();
+        this.updateThinkingControls(this.modelCapabilitiesMap?.[this.currentModel] || null);
+        this.modelBrowser?.render();
+    }
+
+    /**
+     * @param {Array<{id: string, name: string, provider?: string}>} models
+     * @param {string} emptyMessage
+     */
+    updateAvailableModels(models, emptyMessage = 'Configure API keys in Settings') {
+        this.availableModels = models;
+        const savedModel = storage.getCurrentModel();
+        const savedModelAvailable = savedModel && models.some((model) => model.id === savedModel);
+        const nextModel = savedModelAvailable ? savedModel : models[0]?.id || '';
+        this.setCurrentModel(nextModel, { persist: Boolean(nextModel) });
+
+        if (this.modelPicker) {
+            this.modelPicker.classList.toggle('no-keys', models.length === 0);
+            this.modelPicker.title = models.length === 0 ? emptyMessage : 'Select model';
+        }
+        this.modelBrowser?.render();
+    }
+
+    /**
+     *
+     */
+    renderModelPickerTrigger() {
+        if (!this.modelPicker) return;
+        const currentModel = this.getCurrentModel();
+        const model = this.availableModels.find((item) => item.id === currentModel);
+        const nameEl = document.getElementById('model-picker-name');
+        const providerEl = document.getElementById('model-picker-provider');
+
+        if (model) {
+            if (nameEl) nameEl.textContent = model.name || model.id;
+            if (providerEl) providerEl.textContent = model.provider || model.id.split('/')[0];
+            this.modelPicker.dataset.modelId = model.id;
+        } else {
+            if (nameEl) nameEl.textContent = 'Configure API keys';
+            if (providerEl) providerEl.textContent = 'Settings';
+            this.modelPicker.dataset.modelId = '';
+        }
     }
 
     /** @param {Array<{id: string, supports_reasoning?: boolean, supports_xhigh_reasoning?: boolean, supports_vision?: boolean}>} models */
@@ -1274,11 +1286,8 @@ class App {
         this.sendBtn.addEventListener('click', () => this.handleSend());
 
         // Model picker
-        this.modelPicker.addEventListener('change', () => {
-            const picker = /** @type {HTMLSelectElement} */ (this.modelPicker);
-            const modelId = picker ? picker.value : '';
-            storage.setCurrentModel(modelId);
-            this.updateThinkingControls(this.modelCapabilitiesMap[modelId] || null);
+        this.modelPicker.addEventListener('click', () => {
+            this.modelBrowser.open();
         });
 
         // Clear selection button
@@ -1832,7 +1841,7 @@ class App {
      * @returns {Object} Request payload with model, api_key, base_url, and any additional params
      */
     buildLLMRequest(additionalParams = {}) {
-        const model = this.modelPicker.value;
+        const model = this.getCurrentModel();
         const reasoningEffort = storage.getReasoningEffort();
         const toolsEnabled = storage.getToolsEnabled();
         const enabledTools = storage.getEnabledTools();
@@ -1961,7 +1970,7 @@ class App {
         this.canvas.clearSelection();
 
         // Create AI response node and stream response
-        const model = this.modelPicker.value;
+        const model = this.getCurrentModel();
         const aiNode = createNode(NodeType.AI, '', {
             position: this.graph.autoPosition([humanNode.id]),
             model: model.split('/').pop(),
@@ -2703,7 +2712,7 @@ print("Hello from Pyodide!")
         // If description provided, trigger AI generation
         if (hasPrompt) {
             // Use the currently selected model
-            const model = this.modelPicker.value;
+            const model = this.getCurrentModel();
             await this.handleNodeGenerateSubmit(codeNode.id, description.trim(), model);
         }
     }
@@ -2898,7 +2907,7 @@ print("Hello from Pyodide!")
 
         // Get available models for dropdown
         const models = chat.models || [];
-        const currentModel = this.modelPicker.value;
+        const currentModel = this.getCurrentModel();
         wrapped.showGenerateUI(nodeId, models, currentModel, this.canvas, this);
     }
 
@@ -3369,7 +3378,7 @@ print("Hello from Pyodide!")
                 this.saveSession();
 
                 // Create AI response node
-                const model = this.modelPicker.value;
+                const model = this.getCurrentModel();
                 const aiNode = createNode(NodeType.AI, '', {
                     position: this.graph.autoPosition([humanNode.id]),
                     model: model.split('/').pop(),
@@ -3467,7 +3476,7 @@ print("Hello from Pyodide!")
      * @param nodeId
      */
     async handleNodeSummarize(nodeId) {
-        const model = this.modelPicker.value;
+        const model = this.getCurrentModel();
         const parentNode = this.graph.getNode(nodeId);
 
         // Get context up to this node (includes the node itself and all ancestors)
@@ -3537,7 +3546,7 @@ print("Hello from Pyodide!")
         const hasExa = storage.hasExaApiKey();
         const exaKey = hasExa ? storage.getExaApiKey() : null;
 
-        const model = this.modelPicker.value;
+        const model = this.getCurrentModel();
 
         // Create FETCH_RESULT node for the raw fetched content
         const fetchResultNode = createNode(NodeType.FETCH_RESULT, 'Fetching content...', {
@@ -4312,7 +4321,7 @@ print("Hello from Pyodide!")
         const refNode = parents.find((p) => p.type === NodeType.REFERENCE);
         const url = refNode?.url || 'the fetched content';
 
-        const model = this.modelPicker.value;
+        const model = this.getCurrentModel();
 
         // Check if we have a valid model (in admin mode, backend handles credentials)
         const request = this.buildLLMRequest({});
@@ -4580,7 +4589,7 @@ print("Hello from Pyodide!")
      * @param selectedIds
      */
     updateContextBudget(selectedIds) {
-        const model = this.modelPicker.value;
+        const model = this.getCurrentModel();
         const contextWindow = chat.getContextWindow(model);
 
         let tokens = 0;

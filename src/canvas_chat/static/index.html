@@ -166,9 +166,10 @@
                 </div>
                 <div class="toolbar-status-group">
                     <label class="toolbar-field-label" for="model-picker">Model</label>
-                    <select id="model-picker" class="model-picker">
-                        <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
-                    </select>
+                    <button id="model-picker" class="model-picker model-picker-trigger" type="button">
+                        <span id="model-picker-name" class="model-picker-name">GPT-4o Mini</span>
+                        <span id="model-picker-provider" class="model-picker-provider">OpenAI</span>
+                    </button>
                 </div>
                 <div class="toolbar-status-group">
                     <label class="toolbar-field-label" for="agent-picker">Agent</label>
@@ -359,6 +360,37 @@
                         <path d="M22 2L15 22L11 13L2 9L22 2Z"></path>
                     </svg>
                 </button>
+            </div>
+        </div>
+
+        <!-- Model Selector Modal -->
+        <div id="model-selector-modal" class="modal" style="display: none">
+            <div class="modal-content model-selector-modal-content">
+                <div class="modal-header">
+                    <h2>Select Model</h2>
+                    <button class="modal-close" id="model-selector-close">&times;</button>
+                </div>
+                <div class="modal-body model-selector-body">
+                    <div class="model-selector-search-row">
+                        <input
+                            type="search"
+                            id="model-selector-search"
+                            class="modal-text-input"
+                            placeholder="Search models or providers..."
+                            autocomplete="off"
+                        />
+                    </div>
+                    <div id="model-selector-provider-filters" class="model-selector-provider-filters"></div>
+                    <div id="model-selector-recent-section" class="model-selector-section" style="display: none">
+                        <h3>Recent</h3>
+                        <div id="model-selector-recent-list" class="model-selector-list"></div>
+                    </div>
+                    <div class="model-selector-section">
+                        <h3>Available Models</h3>
+                        <div id="model-selector-list" class="model-selector-list"></div>
+                    </div>
+                    <div id="model-selector-empty" class="model-selector-empty" style="display: none"></div>
+                </div>
             </div>
         </div>
 

@@ -407,7 +407,7 @@ class ModalManager {
         // Load flashcard strictness
         document.getElementById('flashcard-strictness').value = storage.getFlashcardStrictness();
 
-        // Populate fast-model select from currently loaded models in the main picker
+        // Populate fast-model select from currently loaded models
         this.populateFastModelSelect();
 
         // Render custom models list
@@ -415,14 +415,13 @@ class ModalManager {
     }
 
     /**
-     * Populate the fast-model <select> with the same options as the main model picker.
+     * Populate the fast-model <select> with the currently loaded models.
      * Adds a leading "Default" option that maps to the empty string (clears the setting).
      */
     populateFastModelSelect() {
         const select = document.getElementById('fast-model-select');
         if (!select) return;
 
-        const mainPicker = document.getElementById('model-picker');
         const current = localStorage.getItem('canvas-chat-fast-model') || '';
 
         select.innerHTML = '';
@@ -432,14 +431,12 @@ class ModalManager {
         defaultOpt.textContent = 'Default (openai/gpt-4o-mini)';
         select.appendChild(defaultOpt);
 
-        if (mainPicker) {
-            for (const opt of mainPicker.options) {
-                if (!opt.value || opt.disabled) continue;
-                const clone = document.createElement('option');
-                clone.value = opt.value;
-                clone.textContent = opt.textContent;
-                select.appendChild(clone);
-            }
+        for (const model of this.app.availableModels || []) {
+            if (!model.id) continue;
+            const option = document.createElement('option');
+            option.value = model.id;
+            option.textContent = `${model.name} (${model.provider || model.id.split('/')[0]})`;
+            select.appendChild(option);
         }
 
         // If the saved fast model isn't in the picker options, add it so the value sticks.
@@ -610,6 +607,7 @@ class ModalManager {
             'edit-title-modal',
             'edit-content-modal',
             'session-modal',
+            'model-selector-modal',
             'settings-modal',
             'help-modal',
         ];

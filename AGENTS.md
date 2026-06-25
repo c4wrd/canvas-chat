@@ -92,6 +92,7 @@ canvas-chat/
 | `src/canvas_chat/static/js/sse.js`         | Server-sent events utilities                                           | Streaming connection handling                                                                            |
 | `src/canvas_chat/static/js/utils.js`       | Pure utility functions                                                 | Image resizing, error formatting, text processing                                                        |
 | `src/canvas_chat/static/js/model-utils.js` | Model utility functions                                                | Model-related utilities                                                                                  |
+| `src/canvas_chat/static/js/model-browser.js` | Model browser modal and filtering helpers                            | Main chat model selection UI, provider filtering, model search                                            |
 
 #### Plugin architecture modules
 
