@@ -45,6 +45,7 @@ const Actions = {
  * Header button definitions for node headers
  */
 const HeaderButtons = {
+    EXPAND: { id: 'expand', label: '⛶', title: 'Open readable view' },
     NAV_PARENT: { id: 'nav-parent', label: '↑', title: 'Go to parent node' },
     NAV_CHILD: { id: 'nav-child', label: '↓', title: 'Go to child node' },
     COLLAPSE: { id: 'collapse', label: '−', title: 'Collapse children' },
@@ -165,6 +166,7 @@ class BaseNode {
      */
     getHeaderButtons() {
         return [
+            HeaderButtons.EXPAND,
             HeaderButtons.NAV_PARENT,
             HeaderButtons.NAV_CHILD,
             HeaderButtons.COLLAPSE,

@@ -3,7 +3,7 @@
  */
 
 import { EventEmitter } from './event-emitter.js';
-import { wrapNode } from './node-protocols.js';
+import { HeaderButtons, wrapNode } from './node-protocols.js';
 import { NodeType, getDefaultNodeSize } from './graph-types.js';
 import { highlightTextInHtml } from './highlight-utils.js';
 import { escapeHtmlText, truncateText } from './utils.js';
@@ -113,6 +113,7 @@ class Canvas {
         this.branchTooltip = null;
         this.activeSelectionNodeId = null;
         this.pendingSelectedText = null; // Store selected text when tooltip opens
+        this.nodeReaderKeydownHandler = null;
 
         // Navigation popover state
         this.navPopover = null;
@@ -1870,7 +1871,10 @@ class Canvas {
         const typeLabel = wrapped.getTypeLabel();
         const contentHtml = wrapped.renderContent(this);
         const actions = wrapped.getComputedActions();
-        const headerButtons = wrapped.getHeaderButtons();
+        const protocolHeaderButtons = wrapped.getHeaderButtons();
+        const headerButtons = protocolHeaderButtons.some((btn) => btn.id === HeaderButtons.EXPAND.id)
+            ? protocolHeaderButtons
+            : [HeaderButtons.EXPAND, ...protocolHeaderButtons];
         const contentClasses = wrapped.getContentClasses();
 
         // Build action buttons HTML (may be empty for some node types like Matrix)
@@ -2638,12 +2642,24 @@ class Canvas {
         const summarizeBtn = div.querySelector('.summarize-btn');
         const fetchSummarizeBtn = div.querySelector('.fetch-summarize-btn');
         const deleteBtn = div.querySelector('.delete-btn');
+        const expandBtn = div.querySelector('.expand-btn');
 
         if (replyBtn) {
             replyBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.emit('nodeReply', node.id);
             });
+        }
+
+        if (expandBtn) {
+            /**
+             * @param {Event} e
+             */
+            const handleExpandClick = (e) => {
+                e.stopPropagation();
+                this.showNodeReaderModal(node);
+            };
+            expandBtn.addEventListener('click', handleExpandClick);
         }
 
         if (summarizeBtn) {
@@ -4564,6 +4580,75 @@ class Canvas {
         }
 
         return prepared;
+    }
+
+    /**
+     * Show the selected node content in a full reader modal.
+     * @param {any} node
+     * @returns {void}
+     */
+    showNodeReaderModal(node) {
+        const modal = document.getElementById('node-reader-modal');
+        const titleEl = document.getElementById('node-reader-title');
+        const contentEl = document.getElementById('node-reader-content');
+        const closeBtn = document.getElementById('node-reader-close');
+        if (!modal || !titleEl || !contentEl || !closeBtn) return;
+
+        const wrapped = wrapNode(node);
+        const title = node.title || wrapped.getTypeLabel() || 'Readable View';
+        const content = node.content || '';
+
+        titleEl.textContent = title;
+        contentEl.innerHTML = content
+            ? this.renderMarkdown(content)
+            : '<p class="node-reader-empty">No readable content.</p>';
+
+        const close = () => this.hideNodeReaderModal();
+        closeBtn.onclick = close;
+        /**
+         * @param {MouseEvent} e
+         */
+        const handleReaderBackdropClick = (e) => {
+            if (e.target === modal) close();
+        };
+        modal.onclick = handleReaderBackdropClick;
+
+        if (this.nodeReaderKeydownHandler) {
+            document.removeEventListener('keydown', this.nodeReaderKeydownHandler);
+        }
+        /**
+         * @param {KeyboardEvent} e
+         */
+        const handleReaderKeydown = (e) => {
+            if (e.key === 'Escape') close();
+        };
+        this.nodeReaderKeydownHandler = handleReaderKeydown;
+        document.addEventListener('keydown', this.nodeReaderKeydownHandler);
+
+        modal.style.display = 'flex';
+        contentEl.scrollTop = 0;
+    }
+
+    /**
+     * Hide the node reader modal.
+     * @returns {void}
+     */
+    hideNodeReaderModal() {
+        const modal = document.getElementById('node-reader-modal');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.onclick = null;
+        }
+
+        const closeBtn = document.getElementById('node-reader-close');
+        if (closeBtn) {
+            closeBtn.onclick = null;
+        }
+
+        if (this.nodeReaderKeydownHandler) {
+            document.removeEventListener('keydown', this.nodeReaderKeydownHandler);
+            this.nodeReaderKeydownHandler = null;
+        }
     }
 
     /**

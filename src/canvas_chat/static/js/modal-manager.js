@@ -605,6 +605,7 @@ class ModalManager {
         const modalIds = [
             'rename-session-modal',
             'edit-title-modal',
+            'node-reader-modal',
             'edit-content-modal',
             'session-modal',
             'model-selector-modal',

@@ -782,6 +782,73 @@ kbd {
     padding: 12px 20px 20px;
 }
 
+/* Node Reader Modal */
+.node-reader-modal-content {
+    width: min(92vw, 980px);
+    max-width: 980px;
+    height: min(86vh, 920px);
+}
+
+.node-reader-body {
+    padding: 0;
+    background: var(--bg-secondary);
+}
+
+.node-reader-content.node-content {
+    max-width: 760px;
+    min-height: 100%;
+    margin: 0 auto;
+    padding: 32px 40px 44px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 17px;
+    line-height: 1.75;
+    overflow: visible;
+    max-height: none;
+}
+
+.node-reader-content.node-content h1 {
+    font-size: 1.8em;
+}
+
+.node-reader-content.node-content h2 {
+    font-size: 1.45em;
+}
+
+.node-reader-content.node-content h3 {
+    font-size: 1.2em;
+}
+
+.node-reader-content.node-content p,
+.node-reader-content.node-content ul,
+.node-reader-content.node-content ol,
+.node-reader-content.node-content pre,
+.node-reader-content.node-content blockquote,
+.node-reader-content.node-content table {
+    margin-top: 0.8em;
+    margin-bottom: 0.8em;
+}
+
+.node-reader-content.node-content pre {
+    padding: 1em 1.1em;
+}
+
+.node-reader-empty {
+    color: var(--text-muted);
+}
+
+@media (max-width: 640px) {
+    .node-reader-modal-content {
+        width: 96vw;
+        height: 90vh;
+    }
+
+    .node-reader-content.node-content {
+        padding: 24px 20px 32px;
+        font-size: 16px;
+    }
+}
+
 /* Code Editor Modal */
 .code-editor-body {
     flex-direction: row !important;
