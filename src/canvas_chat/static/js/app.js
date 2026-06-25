@@ -4870,9 +4870,16 @@ print("Hello from Pyodide!")
         if (node.type !== NodeType.MATRIX && !contentForSummary) return;
 
         try {
-            const requestBody = this.buildLLMRequest({
+            const fastModel = storage.getFastModel();
+            const requestBody = {
                 content: contentForSummary,
-            });
+                model: fastModel,
+            };
+
+            if (!this.adminMode) {
+                requestBody.api_key = chat.getApiKeyForModel(fastModel);
+                requestBody.base_url = chat.getBaseUrlForModel(fastModel);
+            }
 
             const response = await fetch(apiUrl('/api/generate-summary'), {
                 method: 'POST',
