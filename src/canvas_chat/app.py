@@ -654,6 +654,42 @@ class CommitteeRequest(BaseModel):
 MODEL_REGISTRY: list[dict] = [
     # OpenAI
     {
+        "id": "openai/gpt-5.6-sol-pro",
+        "name": "GPT-5.6 Sol Pro",
+        "provider": "OpenAI",
+        "context_window": 1050000,
+        "supports_reasoning": True,
+        "supports_xhigh_reasoning": True,
+        "supports_vision": True,
+    },
+    {
+        "id": "openai/gpt-5.6-sol",
+        "name": "GPT-5.6 Sol",
+        "provider": "OpenAI",
+        "context_window": 1050000,
+        "supports_reasoning": True,
+        "supports_xhigh_reasoning": True,
+        "supports_vision": True,
+    },
+    {
+        "id": "openai/gpt-5.6-terra",
+        "name": "GPT-5.6 Terra",
+        "provider": "OpenAI",
+        "context_window": 1050000,
+        "supports_reasoning": True,
+        "supports_xhigh_reasoning": True,
+        "supports_vision": True,
+    },
+    {
+        "id": "openai/gpt-5.6-luna",
+        "name": "GPT-5.6 Luna",
+        "provider": "OpenAI",
+        "context_window": 1050000,
+        "supports_reasoning": True,
+        "supports_xhigh_reasoning": True,
+        "supports_vision": True,
+    },
+    {
         "id": "openai/gpt-5.5-pro",
         "name": "GPT-5.5 Pro",
         "provider": "OpenAI",

@@ -197,6 +197,10 @@ def test_model_registry_includes_current_openai_gpt5_models():
     by_id = {model["id"]: model for model in app_module.MODEL_REGISTRY}
 
     for model_id, name in [
+        ("openai/gpt-5.6-sol-pro", "GPT-5.6 Sol Pro"),
+        ("openai/gpt-5.6-sol", "GPT-5.6 Sol"),
+        ("openai/gpt-5.6-terra", "GPT-5.6 Terra"),
+        ("openai/gpt-5.6-luna", "GPT-5.6 Luna"),
         ("openai/gpt-5.5-pro", "GPT-5.5 Pro"),
         ("openai/gpt-5.5", "GPT-5.5"),
         ("openai/gpt-5.4", "GPT-5.4"),
