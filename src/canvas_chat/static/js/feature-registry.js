@@ -19,6 +19,7 @@ import { ImageGenerationFeature } from './plugins/image-generation.js';
 import { HighlightFeature } from './plugins/highlight.js';
 import { DeepResearchFeature } from './plugins/deep-research.js';
 import { BranchFeature } from './plugins/branch.js';
+import { DecomposeFeature } from './plugins/decompose.js';
 import { PerplexityFeature } from './plugins/perplexity.js';
 import { AgentsFeature } from './plugins/agents.js';
 
@@ -212,6 +213,17 @@ class FeatureRegistry {
                 slashCommands: [
                     {
                         command: '/branch',
+                        handler: 'handleCommand',
+                    },
+                ],
+                priority: PRIORITY.BUILTIN,
+            },
+            {
+                id: 'decompose',
+                feature: DecomposeFeature,
+                slashCommands: [
+                    {
+                        command: '/decompose',
                         handler: 'handleCommand',
                     },
                 ],
