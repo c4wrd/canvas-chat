@@ -13,7 +13,7 @@ mise run test-js    # Run JavaScript tests
 
 ## Project Structure
 
-```
+```text
 src/canvas_chat/
 ├── app.py                 # FastAPI application (core backend)
 ├── __main__.py            # CLI entry point (Typer)
@@ -22,6 +22,10 @@ src/canvas_chat/
 ├── url_fetch_registry.py      # Plugin registry for URL handlers
 ├── tool_plugin.py         # Base class for LLM tools
 ├── tool_registry.py       # Tool registration and execution
+├── mcp_client/            # MCP (Model Context Protocol) server integration
+│   ├── manager.py             # MCPManager, MCPServerConnection (session lifecycle)
+│   ├── tool_adapter.py        # MCPToolPlugin, schema/name sanitization
+│   └── results.py             # CallToolResult -> tool-result dict mapping
 ├── plugins/               # Built-in backend plugins
 │   ├── pdf_handler.py         # PDF upload handling
 │   ├── youtube_handler.py     # YouTube transcript extraction
@@ -59,6 +63,7 @@ src/canvas_chat/
 | `GET /api/models` | List available models |
 | `GET /api/config` | Get server configuration |
 | `GET /api/tools` | List available LLM tools |
+| `GET /api/mcp/status` | Report MCP server connection health |
 | `POST /api/deep-research/start` | Start Google Deep Research task |
 | `GET /api/deep-research/status/{task_id}` | Check research status |
 | `GET /api/deep-research/stream/{task_id}` | Stream research results (SSE) |
@@ -68,6 +73,7 @@ src/canvas_chat/
 ## Architecture
 
 ### Data Flow
+
 1. User types message → `chat.js` builds context from selected nodes
 2. `POST /api/chat` with context and model selection
 3. `app.py` routes to LiteLLM → correct provider API
@@ -78,6 +84,7 @@ src/canvas_chat/
 ### Plugin System (3 levels)
 
 **Features** - Global slash commands (`/matrix`, `/research`, `/committee`, `/deep-research`, `/branch`, `/image`)
+
 ```javascript
 class MyFeature extends FeaturePlugin {
     getSlashCommand() { return '/myfeature'; }
@@ -86,6 +93,7 @@ class MyFeature extends FeaturePlugin {
 ```
 
 **Nodes** - Custom node types (AI, Note, Code, CSV, Image, etc.)
+
 ```javascript
 class MyNode extends NodePlugin {
     getNodeType() { return 'my-node'; }
@@ -98,29 +106,45 @@ class MyNode extends NodePlugin {
 ### Backend Plugin Registries
 
 **File Upload Registry** (`file_upload_registry.py`):
+
 - Registers handlers by MIME type and file extension
 - Priority system: BUILTIN(100) > OFFICIAL(50) > COMMUNITY(10)
 
 **URL Fetch Registry** (`url_fetch_registry.py`):
+
 - Registers handlers by URL regex patterns
 - Used for YouTube, PDF URLs, etc.
 
 ### LLM Tool System
 
 **Backend** (`tool_plugin.py`, `tool_registry.py`):
+
 - Abstract `ToolPlugin` base class with `execute()` method
 - Registry with priority system and OpenAI format conversion
 - Agentic loop: LLM calls tools, results fed back, repeats until completion
 
 **Built-in Tools:**
+
 - Calculator: Safe math evaluation (arithmetic, functions, constants)
 - Web Search: DuckDuckGo integration (no API key required)
 
 **Frontend** (`chat.js`, UI controls):
+
 - Tools toggle with dropdown menu
 - Master enable/disable switch
 - Per-tool selection checkboxes
 - Tool call/result event streaming
+
+### MCP (Model Context Protocol) Server Support
+
+**Config:** `mcp_servers:` in config.yaml (stdio or streamable-HTTP transport; see `config.example.yaml`)
+
+**Backend** (`src/canvas_chat/mcp_client/`):
+
+- `MCPManager`/`MCPServerConnection` (`manager.py`) connect to each configured server at FastAPI startup (via the app's `lifespan`) and disconnect at shutdown. Each server's session lives in one dedicated background task for its whole lifetime, since the MCP SDK's transports/`ClientSession` are anyio-task-affine context managers.
+- Every discovered MCP tool is wrapped as an `MCPToolPlugin` (`tool_adapter.py`) and registered into `ToolRegistry` via `register_instance()` (id: `mcp__<server>__<tool>`, sanitized/truncated to fit OpenAI's 64-char function-name limit).
+- Because registration goes through the same `ToolRegistry` as built-in tools, MCP tools automatically appear in `GET /api/tools`, work in the `/api/chat` agentic loop, and work in the deepagents harness — no changes needed to either.
+- `GET /api/mcp/status` reports per-server connection health (name, transport, connected, tool count, error) — never secrets.
 
 ### Extended Thinking/Reasoning
 
@@ -137,6 +161,7 @@ class MyNode extends NodePlugin {
 **Slash command:** `/deep-research [query]`
 
 **Architecture:**
+
 - Backend: 5 SSE endpoints, resume support, task tracking
 - Model: `deep-research-pro-preview-12-2025`
 - Frontend: Modal UI, progress streaming, citations
@@ -150,6 +175,7 @@ class MyNode extends NodePlugin {
 **Slash command:** `/branch [parsing instructions]`
 
 **Functionality:**
+
 - Parse lists from selected nodes (numbered, bullet, line-by-line)
 - Configure command template with `{item}` placeholder
 - Execute all branches in parallel
@@ -174,6 +200,7 @@ mise run typecheck   # TypeScript type checking
 ```
 
 Tests are in `/tests/`:
+
 - Python: pytest (tool_registry, calculator_tool, web_search_tool)
 - JavaScript: Node.js test framework (branch_plugin, existing tests)
 
@@ -185,6 +212,8 @@ Tests are in `/tests/`:
 | `src/canvas_chat/config.py` | Configuration dataclasses and validation |
 | `src/canvas_chat/tool_plugin.py` | Base class for LLM tools |
 | `src/canvas_chat/tool_registry.py` | Tool registration system |
+| `src/canvas_chat/mcp_client/manager.py` | MCP server session lifecycle |
+| `src/canvas_chat/mcp_client/tool_adapter.py` | MCP tool -> ToolPlugin adapter |
 | `src/canvas_chat/static/js/app.js` | Frontend application orchestration |
 | `src/canvas_chat/static/js/canvas.js` | SVG rendering and interaction |
 | `src/canvas_chat/static/js/crdt-graph.js` | Graph data structure with CRDT |

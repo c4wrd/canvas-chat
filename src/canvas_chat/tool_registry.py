@@ -49,6 +49,7 @@ _LANGSMITH_ENABLED = bool(os.environ.get("LANGSMITH_API_KEY"))
 PRIORITY = {
     "BUILTIN": 100,
     "OFFICIAL": 50,
+    "MCP": 25,
     "COMMUNITY": 10,
 }
 
@@ -101,6 +102,7 @@ class ToolRegistry:
             "handler": handler,
             "priority": priority,
             "enabled": enabled,
+            "metadata": {},
         }
 
         # Clear cached instance
@@ -108,6 +110,70 @@ class ToolRegistry:
             del cls._instances[id]
 
         logger.info(f"[ToolRegistry] Registered tool: {id}")
+
+    @classmethod
+    def register_instance(
+        cls,
+        id: str,
+        instance: ToolPlugin,
+        priority: int = PRIORITY["MCP"],
+        enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Register a pre-built tool instance (e.g. an MCP-backed tool).
+
+        Unlike :meth:`register`, which takes a no-arg-constructible class and
+        instantiates it lazily, this seeds ``_instances`` directly so tools
+        that wrap stateful resources (a live MCP session) can be registered
+        without needing a no-arg constructor.
+
+        Args:
+            id: Unique tool identifier (should match instance.get_name())
+            instance: A constructed ToolPlugin instance
+            priority: Priority level (higher = preferred)
+            enabled: Whether the tool is enabled by default
+            metadata: Arbitrary extra info surfaced via list_tools_info
+                (e.g. {"source": "mcp", "server": "github"})
+
+        Raises:
+            ValueError: If config is invalid
+        """
+        if not id:
+            raise ValueError("ToolRegistry.register_instance: id is required")
+        if not isinstance(instance, ToolPlugin):
+            raise ValueError(
+                "ToolRegistry.register_instance: instance must be a "
+                f'ToolPlugin for "{id}"'
+            )
+
+        if id in cls._tools:
+            logger.warning(f'ToolRegistry: Overwriting existing tool "{id}"')
+
+        cls._tools[id] = {
+            "id": id,
+            "handler": type(instance),
+            "priority": priority,
+            "enabled": enabled,
+            "metadata": metadata or {},
+        }
+        cls._instances[id] = instance
+
+        logger.info(f"[ToolRegistry] Registered tool instance: {id}")
+
+    @classmethod
+    def unregister(cls, id: str) -> bool:
+        """Remove a tool from the registry.
+
+        Used when an MCP server disconnects or its tool list changes.
+
+        Args:
+            id: Tool ID to remove
+
+        Returns:
+            True if the tool existed and was removed, False otherwise
+        """
+        cls._instances.pop(id, None)
+        return cls._tools.pop(id, None) is not None
 
     @classmethod
     def get_instance(cls, tool_id: str) -> ToolPlugin | None:
@@ -267,6 +333,7 @@ class ToolRegistry:
         for tool_config in cls._tools.values():
             instance = cls.get_instance(tool_config["id"])
             if instance:
+                metadata = tool_config.get("metadata") or {}
                 tools_info.append(
                     {
                         "id": tool_config["id"],
@@ -274,6 +341,8 @@ class ToolRegistry:
                         "description": instance.get_description(),
                         "enabled": tool_config["enabled"],
                         "priority": tool_config["priority"],
+                        "source": metadata.get("source", "builtin"),
+                        "server": metadata.get("server"),
                     }
                 )
         return sorted(tools_info, key=lambda t: t["priority"], reverse=True)

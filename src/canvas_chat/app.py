@@ -24,6 +24,7 @@ import os
 import sys
 import time
 import traceback
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 from uuid import uuid4
@@ -60,6 +61,7 @@ from canvas_chat.firebase_admin_init import (
     is_firebase_available,
     verify_id_token,
 )
+from canvas_chat.mcp_client import MCPManager, get_mcp_manager, set_mcp_manager
 
 # Import built-in file upload handler plugins (registers them)
 # Import built-in URL fetch handler plugins (registers them)
@@ -167,7 +169,27 @@ if DEV_MODE:
 
     logging.getLogger("uvicorn.access").addFilter(_SilenceDevReload())
 
-app = FastAPI(title="Canvas Chat", version=__version__)
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Connect to configured MCP servers at startup, disconnect at shutdown.
+
+    get_admin_config()/load_python_plugins() are defined further down this
+    module; that's fine since this body only runs once the whole module has
+    finished loading (at actual app startup).
+    """
+    config = get_admin_config()
+    if config.mcp_servers:
+        manager = MCPManager(config.mcp_servers)
+        set_mcp_manager(manager)
+        await manager.start()
+    yield
+    manager = get_mcp_manager()
+    if manager:
+        await manager.stop()
+
+
+app = FastAPI(title="Canvas Chat", version=__version__, lifespan=_lifespan)
 
 
 # Disable caching in dev mode
@@ -1963,6 +1985,17 @@ async def list_tools() -> list[dict]:
     when enable_tools is True.
     """
     return ToolRegistry.list_tools_info()
+
+
+@app.get("/api/mcp/status")
+async def mcp_status() -> list[dict]:
+    """Report connection status for configured MCP servers.
+
+    Never includes secrets (command/args/env/headers/url) — just enough
+    to show whether each server is connected and how many tools it exposed.
+    """
+    manager = get_mcp_manager()
+    return manager.get_status() if manager else []
 
 
 @app.post("/api/provider-models")

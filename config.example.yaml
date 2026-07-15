@@ -220,6 +220,43 @@ plugins:
     # - path: /absolute/path/to/plugin.js
 
 # ============================================================================
+# MCP SERVERS - Expose Model Context Protocol server tools as LLM tools
+# ============================================================================
+#
+# Optional. Each entry connects to one MCP server at startup and registers
+# every tool it exposes as a canvas-chat tool (namespaced mcp__<name>__<tool>).
+# Registered tools appear in GET /api/tools and work in both the standard
+# /api/chat tool loop and the deepagents harness with no further config.
+#
+# Two transports (set exactly one of `command` or `url` per server):
+#   - stdio: spawns a local subprocess speaking MCP over stdio
+#   - Streamable HTTP: connects to a remote MCP server over HTTP
+#
+# Secrets should never be written directly in this file. Use `envPassthrough`
+# (stdio subprocess env) or `headersEnvVars` (HTTP auth headers) to pull
+# secret values from the server process's environment at connect time.
+
+# mcp_servers:
+#     # Example: stdio-based reference server (spawns `npx` as a subprocess)
+#     - name: everything
+#       command: npx
+#       args: ['-y', '@modelcontextprotocol/server-everything']
+#
+#     # Example: stdio server that needs a token forwarded from the environment
+#     - name: github
+#       command: npx
+#       args: ['-y', '@modelcontextprotocol/server-github']
+#       envPassthrough: ['GITHUB_TOKEN']
+#
+#     # Example: remote MCP server over streamable HTTP
+#     - name: remote-example
+#       url: https://mcp.example.com/mcp
+#       headersEnvVars:
+#           Authorization: MCP_REMOTE_AUTH_HEADER
+#       toolTimeoutSeconds: 60
+#       connectTimeoutSeconds: 30
+
+# ============================================================================
 # FIELD REFERENCE
 # ============================================================================
 #
@@ -258,6 +295,27 @@ plugins:
 #   Paths can be absolute or relative to this config file.
 #   JavaScript plugins must be ES modules that import from '/static/js/'
 #   Python plugins must extend plugin base classes (e.g., UrlFetchHandlerPlugin)
+#
+# mcp_servers (optional, array; also accepts the `mcpServers` key):
+#   - name (required, string): Unique server identifier, ^[a-zA-Z0-9_-]{1,32}$
+#       Becomes part of registered tool ids: mcp__<name>__<tool>
+#
+#   - command (stdio transport, string): Executable to spawn (e.g. "npx")
+#   - args (optional, array of strings): Arguments passed to `command`
+#   - env (optional, mapping): Literal (non-secret) subprocess environment vars
+#   - envPassthrough (optional, array of strings): Host env var names to
+#       forward into the subprocess environment (for secrets/tokens)
+#
+#   - url (HTTP transport, string): Streamable HTTP MCP server endpoint
+#   - headers (optional, mapping): Literal (non-secret) HTTP headers
+#   - headersEnvVars (optional, mapping): header name -> env var name;
+#       resolved from the environment at connect time (for secrets/tokens)
+#
+#   Exactly one of `command` or `url` must be set per entry.
+#
+#   - enabled (optional, boolean): Default true
+#   - toolTimeoutSeconds (optional, number): Per tool-call timeout. Default 60
+#   - connectTimeoutSeconds (optional, number): Startup connect timeout. Default 30
 #
 # ============================================================================
 # ENVIRONMENT VARIABLES

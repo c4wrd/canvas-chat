@@ -19,12 +19,15 @@ Key design principles:
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ruamel.yaml import YAML
 
 logger = logging.getLogger(__name__)
+
+_MCP_SERVER_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,32}$")
 
 
 @dataclass
@@ -196,6 +199,127 @@ class PluginConfig:
 
 
 @dataclass
+class MCPServerConfig:
+    """Configuration for a single MCP (Model Context Protocol) server.
+
+    Exactly one transport must be configured:
+    - stdio: set `command` (and optionally `args`/`env`/`env_passthrough`) to
+      spawn a local subprocess speaking MCP over stdio.
+    - streamable HTTP: set `url` (and optionally `headers`/`headers_env_vars`)
+      to connect to a remote MCP server.
+
+    Secrets follow the same env-var-indirection convention as ModelConfig's
+    `api_key_env_var`: literal `headers`/`env` values are for non-secret
+    config, while `headers_env_vars`/`env_passthrough` pull values from the
+    server process's environment at connect time so secrets never live in
+    config.yaml.
+    """
+
+    name: str
+    command: str | None = None
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
+    env_passthrough: list[str] = field(default_factory=list)
+    url: str | None = None
+    headers: dict[str, str] = field(default_factory=dict)
+    headers_env_vars: dict[str, str] = field(default_factory=dict)
+    enabled: bool = True
+    tool_timeout_seconds: float = 60.0
+    connect_timeout_seconds: float = 30.0
+
+    @property
+    def transport(self) -> str:
+        """Return "stdio" or "http" based on which transport fields are set."""
+        return "stdio" if self.command else "http"
+
+    @classmethod
+    def from_dict(cls, data: dict, index: int) -> "MCPServerConfig":
+        """Create MCPServerConfig from a YAML dict with validation.
+
+        Args:
+            data: YAML dictionary for one mcp_servers entry
+            index: Index in mcp_servers list (for error messages)
+
+        Raises:
+            ValueError: If the entry is invalid
+        """
+        if not isinstance(data, dict):
+            raise ValueError(f"mcp_servers[{index}] must be a mapping")
+
+        name = data.get("name")
+        if not name:
+            raise ValueError(f"mcp_servers[{index}] missing 'name' field")
+        if not _MCP_SERVER_NAME_RE.match(name):
+            raise ValueError(
+                f"mcp_servers[{index}] name '{name}' must match "
+                f"^[a-zA-Z0-9_-]{{1,32}}$ (it becomes part of tool ids)"
+            )
+
+        command = data.get("command")
+        url = data.get("url")
+        if bool(command) == bool(url):
+            raise ValueError(
+                f"mcp_servers[{index}] ('{name}') must set exactly one of "
+                f"'command' (stdio transport) or 'url' (HTTP transport)"
+            )
+
+        args = data.get("args", [])
+        if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
+            raise ValueError(
+                f"mcp_servers[{index}] ('{name}') 'args' must be a list of strings"
+            )
+
+        return cls(
+            name=name,
+            command=command,
+            args=list(args),
+            env=dict(data.get("env", {})),
+            env_passthrough=list(data.get("envPassthrough", [])),
+            url=url,
+            headers=dict(data.get("headers", {})),
+            headers_env_vars=dict(data.get("headersEnvVars", {})),
+            enabled=data.get("enabled", True),
+            tool_timeout_seconds=data.get("toolTimeoutSeconds", 60.0),
+            connect_timeout_seconds=data.get("connectTimeoutSeconds", 30.0),
+        )
+
+    def resolve_env(self) -> dict[str, str]:
+        """Resolve subprocess environment: literal `env` plus passthrough vars.
+
+        Passthrough entries that aren't set in the host environment are
+        silently skipped (not a fatal misconfiguration).
+        """
+        resolved = dict(self.env)
+        for var_name in self.env_passthrough:
+            value = os.environ.get(var_name)
+            if value is not None:
+                resolved[var_name] = value
+        return resolved
+
+    def resolve_headers(self) -> dict[str, str]:
+        """Resolve HTTP headers: literal `headers` plus env-indirected ones.
+
+        Returns:
+            Merged headers dict. Env-indirected headers are omitted (not
+            emitted with an empty value) if their source env var is unset.
+        """
+        resolved = dict(self.headers)
+        for header_name, var_name in self.headers_env_vars.items():
+            value = os.environ.get(var_name)
+            if value is not None:
+                resolved[header_name] = value
+        return resolved
+
+    def missing_header_env_vars(self) -> list[str]:
+        """Return env var names referenced by headers_env_vars that aren't set."""
+        return [
+            var_name
+            for var_name in self.headers_env_vars.values()
+            if not os.environ.get(var_name)
+        ]
+
+
+@dataclass
 class AppConfig:
     """Application configuration for models, plugins, and admin mode.
 
@@ -212,6 +336,7 @@ class AppConfig:
 
     models: list[ModelConfig] = field(default_factory=list)
     plugins: list[PluginConfig] = field(default_factory=list)
+    mcp_servers: list[MCPServerConfig] = field(default_factory=list)
     admin_mode: bool = False
     _config_path: Path | None = None
 
@@ -279,9 +404,22 @@ class AppConfig:
                             f"Registered Python plugin: {plugin_config.py_path.name}"
                         )
 
+        # Load MCP servers (optional). Accept both snake_case and the
+        # camelCase "mcpServers" key used by the wider MCP ecosystem.
+        mcp_servers = []
+        mcp_servers_data = data.get("mcp_servers") or data.get("mcpServers")
+        if mcp_servers_data:
+            for i, server_data in enumerate(mcp_servers_data):
+                mcp_servers.append(MCPServerConfig.from_dict(server_data, i))
+                logger.info(
+                    f"Registered MCP server: {mcp_servers[-1].name} "
+                    f"({mcp_servers[-1].transport})"
+                )
+
         config = cls(
             models=models,
             plugins=plugins,
+            mcp_servers=mcp_servers,
             admin_mode=admin_mode,
             _config_path=config_path,
         )
@@ -292,40 +430,46 @@ class AppConfig:
         )
         if plugins:
             logger.info(f"Loaded {len(plugins)} plugin(s)")
+        if mcp_servers:
+            logger.info(f"Loaded {len(mcp_servers)} MCP server(s)")
 
         return config
 
     @classmethod
     def empty(cls) -> "AppConfig":
-        """Create empty config (no models or plugins)."""
-        return cls(models=[], plugins=[], admin_mode=False)
+        """Create empty config (no models, plugins, or MCP servers)."""
+        return cls(models=[], plugins=[], mcp_servers=[], admin_mode=False)
 
     def validate_environment(self) -> None:
         """Validate that all required environment variables are set.
 
-        Only validates in admin mode. In normal mode, users provide their own keys.
+        Model API key validation only applies in admin mode (in normal mode,
+        users provide their own keys). MCP server header env-var validation
+        applies regardless of mode, since mcp_servers is always a server-side
+        config concern.
 
         Call this at startup to fail fast with clear error messages.
 
         Raises:
             ValueError: If any required environment variable is not set
-                (admin mode only)
         """
-        if not self.admin_mode:
-            return  # No validation needed in normal mode
-
         missing = []
-        for model in self.models:
-            if model.api_key_env_var and not os.environ.get(model.api_key_env_var):
-                missing.append((model.id, model.api_key_env_var))
+
+        if self.admin_mode:
+            for model in self.models:
+                if model.api_key_env_var and not os.environ.get(model.api_key_env_var):
+                    missing.append((model.id, model.api_key_env_var))
+
+        for server in self.mcp_servers:
+            for env_var in server.missing_header_env_vars():
+                missing.append((f"mcp_servers.{server.name}", env_var))
 
         if missing:
             error_lines = [
-                f"  - {model_id}: {env_var} not set" for model_id, env_var in missing
+                f"  - {source}: {env_var} not set" for source, env_var in missing
             ]
             raise ValueError(
-                "Missing environment variables for admin mode:\n"
-                + "\n".join(error_lines)
+                "Missing environment variables:\n" + "\n".join(error_lines)
             )
 
     def get_model_config(self, model_id: str) -> ModelConfig | None:
