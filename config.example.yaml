@@ -85,6 +85,11 @@ models:
       contextWindow: 200000
 
     # Anthropic models
+    - id: 'anthropic/claude-fable-5'
+      name: 'Claude Fable 5'
+      apiKeyEnvVar: 'ANTHROPIC_API_KEY'
+      contextWindow: 1000000
+
     - id: 'anthropic/claude-opus-4-8'
       name: 'Claude Opus 4.8'
       apiKeyEnvVar: 'ANTHROPIC_API_KEY'
@@ -97,6 +102,11 @@ models:
 
     - id: 'anthropic/claude-opus-4-6'
       name: 'Claude Opus 4.6'
+      apiKeyEnvVar: 'ANTHROPIC_API_KEY'
+      contextWindow: 1000000
+
+    - id: 'anthropic/claude-sonnet-5'
+      name: 'Claude Sonnet 5'
       apiKeyEnvVar: 'ANTHROPIC_API_KEY'
       contextWindow: 1000000
 

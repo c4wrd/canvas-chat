@@ -745,6 +745,15 @@ MODEL_REGISTRY: list[dict] = [
     },
     # Anthropic
     {
+        "id": "anthropic/claude-fable-5",
+        "name": "Claude Fable 5",
+        "provider": "Anthropic",
+        "context_window": 1000000,
+        "supports_reasoning": True,
+        "supports_xhigh_reasoning": True,
+        "supports_vision": True,
+    },
+    {
         "id": "anthropic/claude-opus-4-8",
         "name": "Claude Opus 4.8",
         "provider": "Anthropic",
@@ -768,6 +777,15 @@ MODEL_REGISTRY: list[dict] = [
         "provider": "Anthropic",
         "context_window": 1000000,
         "supports_reasoning": True,
+        "supports_vision": True,
+    },
+    {
+        "id": "anthropic/claude-sonnet-5",
+        "name": "Claude Sonnet 5",
+        "provider": "Anthropic",
+        "context_window": 1000000,
+        "supports_reasoning": True,
+        "supports_xhigh_reasoning": True,
         "supports_vision": True,
     },
     {
@@ -1244,6 +1262,8 @@ KNOWN_CONTEXT_WINDOWS = {
     "gpt-4-turbo": 128000,
     "gpt-4": 8192,
     "gpt-3.5-turbo": 16385,
+    "claude-fable-5": 1000000,
+    "claude-sonnet-5": 1000000,
     "claude-opus-4-8": 1000000,
     "claude-opus-4-7": 1000000,
     "claude-opus-4-6": 1000000,
@@ -1512,6 +1532,15 @@ async def fetch_google_models(api_key: str) -> list[dict]:
 # Anthropic doesn't have a models list API, so we use a static list
 ANTHROPIC_MODELS = [
     {
+        "id": "anthropic/claude-fable-5",
+        "name": "Claude Fable 5",
+        "provider": "Anthropic",
+        "context_window": 1000000,
+        "supports_reasoning": True,
+        "supports_xhigh_reasoning": True,
+        "supports_vision": True,
+    },
+    {
         "id": "anthropic/claude-opus-4-8",
         "name": "Claude Opus 4.8",
         "provider": "Anthropic",
@@ -1535,6 +1564,15 @@ ANTHROPIC_MODELS = [
         "provider": "Anthropic",
         "context_window": 1000000,
         "supports_reasoning": True,
+        "supports_vision": True,
+    },
+    {
+        "id": "anthropic/claude-sonnet-5",
+        "name": "Claude Sonnet 5",
+        "provider": "Anthropic",
+        "context_window": 1000000,
+        "supports_reasoning": True,
+        "supports_xhigh_reasoning": True,
         "supports_vision": True,
     },
     {

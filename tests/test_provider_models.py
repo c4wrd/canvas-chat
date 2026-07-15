@@ -224,6 +224,20 @@ def test_model_registry_includes_current_anthropic_and_gemini_models():
     assert by_id["anthropic/claude-opus-4-8"]["supports_xhigh_reasoning"] is True
     assert by_id["anthropic/claude-opus-4-8"]["supports_vision"] is True
 
+    assert by_id["anthropic/claude-fable-5"]["name"] == "Claude Fable 5"
+    assert by_id["anthropic/claude-fable-5"]["provider"] == "Anthropic"
+    assert by_id["anthropic/claude-fable-5"]["context_window"] == 1000000
+    assert by_id["anthropic/claude-fable-5"]["supports_reasoning"] is True
+    assert by_id["anthropic/claude-fable-5"]["supports_xhigh_reasoning"] is True
+    assert by_id["anthropic/claude-fable-5"]["supports_vision"] is True
+
+    assert by_id["anthropic/claude-sonnet-5"]["name"] == "Claude Sonnet 5"
+    assert by_id["anthropic/claude-sonnet-5"]["provider"] == "Anthropic"
+    assert by_id["anthropic/claude-sonnet-5"]["context_window"] == 1000000
+    assert by_id["anthropic/claude-sonnet-5"]["supports_reasoning"] is True
+    assert by_id["anthropic/claude-sonnet-5"]["supports_xhigh_reasoning"] is True
+    assert by_id["anthropic/claude-sonnet-5"]["supports_vision"] is True
+
     assert by_id["gemini/gemini-3.5-flash"]["name"] == "Gemini 3.5 Flash"
     assert by_id["gemini/gemini-3.5-flash"]["provider"] == "Google"
     assert by_id["gemini/gemini-3.5-flash"]["context_window"] == 1048576
@@ -240,3 +254,15 @@ def test_anthropic_static_provider_models_include_opus_4_8():
     assert by_id["anthropic/claude-opus-4-8"]["supports_reasoning"] is True
     assert by_id["anthropic/claude-opus-4-8"]["supports_xhigh_reasoning"] is True
     assert by_id["anthropic/claude-opus-4-8"]["supports_vision"] is True
+
+    assert by_id["anthropic/claude-fable-5"]["name"] == "Claude Fable 5"
+    assert by_id["anthropic/claude-fable-5"]["context_window"] == 1000000
+    assert by_id["anthropic/claude-fable-5"]["supports_reasoning"] is True
+    assert by_id["anthropic/claude-fable-5"]["supports_xhigh_reasoning"] is True
+    assert by_id["anthropic/claude-fable-5"]["supports_vision"] is True
+
+    assert by_id["anthropic/claude-sonnet-5"]["name"] == "Claude Sonnet 5"
+    assert by_id["anthropic/claude-sonnet-5"]["context_window"] == 1000000
+    assert by_id["anthropic/claude-sonnet-5"]["supports_reasoning"] is True
+    assert by_id["anthropic/claude-sonnet-5"]["supports_xhigh_reasoning"] is True
+    assert by_id["anthropic/claude-sonnet-5"]["supports_vision"] is True
